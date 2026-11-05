@@ -133,6 +133,9 @@ DONORS_FILE = "donors.json"               # last list downloaded, for offline us
 # Newest first. Shown in the sidebar under "What's new"; release.py uses the
 # entry of the version it publishes as the GitHub release notes.
 CHANGELOG = [
+    ("1.0.9", "2026-11-05", [
+        "Scanning now corrects a gather timer that is off by 5 seconds or more",
+    ]),
     ("1.0.8", "2026-11-05", [
         "New GitHub address: github.com/Tim1501/rok-gem-notifier",
     ]),
@@ -719,7 +722,7 @@ def finish_gather(s, now):
     return count_gather(s, now)
 
 
-def apply_rows(rows, n, smart=False):
+def apply_rows(rows, n, smart=False, lead=30):
     now = time.time()
     info = {"gathering": [], "walking": [], "nongather": 0, "noslot": [], "notimer": [],
             "new": False, "gems": [], "swapped": [], "smart": [], "returning": []}
@@ -796,7 +799,12 @@ def apply_rows(rows, n, smart=False):
                 gd = now + secs
                 if s.status in ("gathering", "ready") and s.gather_due \
                         and abs(s.gather_due - gd) < 20:
-                    s.est = False       # real timer agrees with the estimate
+                    s.est = False       # same gather
+                    if abs(s.gather_due - gd) < 5:
+                        continue        # close enough: keep the timer as it is
+                    s.gather_due = gd   # off by 5 s or more: take the time from the screen
+                    if s.status == "ready" and not s.counted and now < gd - lead:
+                        s.status, s.alert2 = "gathering", False   # alert again at the new time
                     continue
                 if s.done is not None and gd - s.done > max(600, 0.5 * expected_secs(s)):
                     s.done = None       # ends long after the counted one: a new gather
@@ -2689,9 +2697,9 @@ class App:
         self.scanning = True
         self.scan_btn.set(text="Scanning")
         self.set_result("SCANNING: reading the Troops list...")
-        threading.Thread(target=self.scan_worker, args=(self.n,), daemon=True).start()
+        threading.Thread(target=self.scan_worker, args=(self.n, self.lead.get()), daemon=True).start()
 
-    def scan_worker(self, n):
+    def scan_worker(self, n, lead=30):
         try:
             ev = threading.Event()          # hide our own windows so the scan can't read them
             self.q.put(("hide", ev))
@@ -2708,7 +2716,7 @@ class App:
                         f.write("\n".join(dbg))
                 except Exception:
                     pass
-            info = apply_rows(rows, n, self.smart_on)
+            info = apply_rows(rows, n, self.smart_on, lead)
             lines = []
             if info["gathering"]:
                 lines.append("GATHERING: " + ", ".join(info["gathering"]))
