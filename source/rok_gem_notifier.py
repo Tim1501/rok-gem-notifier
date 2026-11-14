@@ -134,7 +134,7 @@ DONORS_FILE = "donors.json"               # last list downloaded, for offline us
 # entry of the version it publishes as the GitHub release notes.
 CHANGELOG = [
     ("1.0.9", "2026-11-05", [
-        "New look: warm dark theme with gem red accents",
+        "New look: warm dark theme with purple accents",
         "New fonts: Inter and Space Grotesk",
         "Live bar at the top: gems, next resend and clock",
         "Dark title bar and highlighted menu item",
@@ -355,7 +355,7 @@ def gem_level(label):
     return int(m.group(1)) if m and int(m.group(1)) in LEVELS else None
 
 # ---------------------------------------------------------------- theme
-# warm near-black "stone" palette, gem red as the accent colour
+# warm near-black "stone" palette, purple as the accent colour
 BG, SIDEBAR, CARD, GROUP = "#14110f", "#181513", "#1e1b19", "#262220"
 FIELD, FIELD_HI, BORDER = "#2e2a28", "#3a3634", "#302c2a"
 EDGE = "#3d3936"           # thin outline of buttons and fields
@@ -363,16 +363,17 @@ TOPBAR = "#0f0d0c"         # live strip along the top of the window
 PANEL, INPUT_BG, LINE = CARD, FIELD, BORDER          # older names, still used by the overlay
 TEXT, MUTED, WHITE = "#a6a09b", "#79716b", "#fafaf9"
 GRAY = MUTED
-ACCENT, ACCENT_HI = GEM_RED, "#e9776f"
-ON_ACCENT = "#250b09"      # text on accent-coloured buttons
-ACCENT_SOFT, ACCENT_LINE = "#2a1816", "#5e2f2b"    # banner fill / outline
+ACCENT, ACCENT_HI = "#a970ff", "#b98aff"
+ON_ACCENT = "#12051f"      # text on accent-coloured buttons
+ACCENT_SOFT, ACCENT_LINE = "#211a2a", "#45325f"    # banner fill / outline
+ACCENT_SOFT_HI = "#2b2138"                          # hover of soft accent buttons
 TEAL, RED, GREEN = "#3cc4b0", "#ef5a5e", "#4ccf7e"
 BLUE = "#4aa8ff"           # returning marches
 ORANGE, GOLD = "#f0a03c", "#e9c24f"
 FLASH, FLASH_UPD = "#3a1b19", "#35301c"
 SEL_OFF = "#44403c"
 PINK = "#ff6b8b"
-TITLE_RED = GEM_RED        # the app name in the header
+TITLE_RED = ACCENT         # "Notifier" in the app name
 
 # Segoe Fluent Icons / Segoe MDL2 Assets glyphs (built into Windows 10/11)
 IC = {"scan": "", "settings": "", "info": "", "sound": "",
@@ -1872,7 +1873,7 @@ class App:
             self.key_chips[action] = Pill(keys, f"{key_label(self.keys[action])} {what}", h=24,
                                           size=8, padx=8, fill=FIELD, fg=TEXT, kind="med")
             self.key_chips[action].pack(side="left", padx=(0, 5))
-        Pill(foot, "Donate", glyph("heart"), self.donate, fill=ACCENT_SOFT, hover="#3a201d",
+        Pill(foot, "Donate", glyph("heart"), self.donate, fill=ACCENT_SOFT, hover=ACCENT_SOFT_HI,
              fg=WHITE, icon_fg=PINK, h=34, size=9, width=204, outline=ACCENT_LINE,
              tip="Like the app? Support it on PayPal").pack(anchor="w", pady=(0, 6))
         Pill(foot, "Generate Bug Report", glyph("bug"), self.report_bug, fill=FIELD, hover=FIELD_HI,
@@ -2202,7 +2203,7 @@ class App:
              hover=FIELD_HI, tip="Back to the timers").pack(side="left")
         self.icon(head, "star", GOLD, 14).pack(side="left", padx=(16, 8))
         self.label(head, "Top Donators", WHITE, 16, "head").pack(side="left")
-        Pill(head, "Donate", glyph("heart"), self.donate, fill=ACCENT_SOFT, hover="#3a201d",
+        Pill(head, "Donate", glyph("heart"), self.donate, fill=ACCENT_SOFT, hover=ACCENT_SOFT_HI,
              fg=WHITE, icon_fg=PINK, h=34, size=9, padx=16, outline=ACCENT_LINE,
              tip="Support the app on PayPal").pack(side="right")
         self.label(top.body, "Tysm for being absolute beasts, for both using and donating to my "
