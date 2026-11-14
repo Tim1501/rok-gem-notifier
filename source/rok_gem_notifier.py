@@ -134,6 +134,8 @@ DONORS_FILE = "donors.json"               # last list downloaded, for offline us
 # entry of the version it publishes as the GitHub release notes.
 CHANGELOG = [
     ("1.0.9", "2026-11-05", [
+        "New look: warm dark theme with gem red accents",
+        "New fonts: Inter and Space Grotesk",
         "Scanning now corrects a gather timer that is off by 5 seconds or more",
     ]),
     ("1.0.8", "2026-11-05", [
@@ -350,18 +352,23 @@ def gem_level(label):
     return int(m.group(1)) if m and int(m.group(1)) in LEVELS else None
 
 # ---------------------------------------------------------------- theme
-BG, SIDEBAR, CARD, GROUP = "#111317", "#17191d", "#1a1c21", "#212329"
-FIELD, FIELD_HI, BORDER = "#2b2e35", "#363a42", "#272a30"
+# warm near-black "stone" palette, gem red as the accent colour
+BG, SIDEBAR, CARD, GROUP = "#14110f", "#181513", "#1e1b19", "#262220"
+FIELD, FIELD_HI, BORDER = "#2e2a28", "#3a3634", "#302c2a"
+EDGE = "#3d3936"           # thin outline of buttons and fields
 PANEL, INPUT_BG, LINE = CARD, FIELD, BORDER          # older names, still used by the overlay
-TEXT, MUTED, WHITE = "#a1a6ae", "#6c717a", "#f3f4f6"
+TEXT, MUTED, WHITE = "#a6a09b", "#79716b", "#fafaf9"
 GRAY = MUTED
-ACCENT, ACCENT_HI = "#2f8bff", "#539fff"
-TEAL, RED, GREEN = "#3cc4b0", "#e5484d", "#3fcf74"
+ACCENT, ACCENT_HI = GEM_RED, "#e9776f"
+ON_ACCENT = "#250b09"      # text on accent-coloured buttons
+ACCENT_SOFT, ACCENT_LINE = "#2a1816", "#5e2f2b"    # banner fill / outline
+TEAL, RED, GREEN = "#3cc4b0", "#ef5a5e", "#4ccf7e"
+BLUE = "#4aa8ff"           # returning marches
 ORANGE, GOLD = "#f0a03c", "#e9c24f"
-FLASH, FLASH_UPD = "#3d1f25", "#38311b"
-SEL_OFF = "#4b4f57"
-PINK = "#ff5c8a"
-TITLE_RED = "#ff5a5a"      # the app name in the header
+FLASH, FLASH_UPD = "#3a1b19", "#35301c"
+SEL_OFF = "#44403c"
+PINK = "#ff6b8b"
+TITLE_RED = GEM_RED        # the app name in the header
 
 # Segoe Fluent Icons / Segoe MDL2 Assets glyphs (built into Windows 10/11)
 IC = {"scan": "", "settings": "", "info": "", "sound": "",
@@ -1034,7 +1041,7 @@ class Overlay:
             n.configure(bg=BG, fg=TEXT, text="-- scan --")
             t.configure(bg=BG, text="")
             return
-        cols = {"idle": TEXT, "walking": ORANGE, "returning": ACCENT, "update": GOLD,
+        cols = {"idle": TEXT, "walking": ORANGE, "returning": BLUE, "update": GOLD,
                 "gathering": GREEN, "ready": RED}
         blink = tick_n % 4 < 2
         for i in self.vis:
@@ -1199,17 +1206,35 @@ _FONTS = {}
 _IMG = {}
 
 
+def load_font_files():
+    """Make the bundled Inter / Space Grotesk fonts usable by this app only (nothing is
+    installed in Windows). Has to run before the first Tk font is made."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        folder = asset("fonts")
+        for name in os.listdir(folder):
+            if name.lower().endswith(".ttf"):
+                ctypes.windll.gdi32.AddFontResourceExW(os.path.join(folder, name), 0x10, 0)
+    except Exception as e:
+        log_error("fonts", e)
+
+
 def init_fonts():
+    load_font_files()
     fams = set(tkfont.families())
     pick = lambda *names: next((n for n in names if n in fams), names[-1])
-    F["ui"] = pick("Segoe UI", "Helvetica")
-    F["semi"] = pick("Segoe UI Semibold", "Segoe UI", "Helvetica")
+    F["ui"] = pick("Inter", "Segoe UI", "Helvetica")
+    F["med"] = pick("Inter Medium", "Segoe UI Semibold", "Helvetica")
+    F["semi"] = pick("Inter SemiBold", "Segoe UI Semibold", "Helvetica")
+    F["head"] = pick("Space Grotesk", "Segoe UI Semibold", "Helvetica")   # titles, timers
     F["icon"] = pick("Segoe Fluent Icons", "Segoe MDL2 Assets", "")
     F["mono"] = pick("Consolas", "Cascadia Mono", "Courier New", "Courier")
 
 
 def font(size=10, kind="ui"):
-    return (F[kind], size)
+    return (F[kind], size, "bold") if kind == "head" else (F[kind], size)
 
 
 def icon_font(size=11):
@@ -1245,6 +1270,13 @@ def rr(w, h, r, fill, outline=None):
             fill=fill, outline=outline, width=k if outline else 0)
         im = _IMG[key] = ImageTk.PhotoImage(big.resize((w, h), Image.LANCZOS))
     return im
+
+
+def mix(c1, c2, t):
+    """Colour c1 laid over c2 at strength t (0..1), as #rrggbb."""
+    a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(c2[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(round(y + (x - y) * t) for x, y in zip(a, b))
 
 
 def recolor(w, old, new):
@@ -1365,13 +1397,14 @@ class Pill(tk.Canvas):
 
     def __init__(self, parent, text="", icon="", cmd=None, fill=FIELD, fg=WHITE, hover=None,
                  h=34, padx=14, size=10, width=None, radius=None, icon_fg=None, anchor="center",
-                 tip=None):
+                 tip=None, outline=None, kind="semi"):
         super().__init__(parent, bg=parent["bg"], highlightthickness=0, bd=0, height=h,
                          cursor="hand2" if cmd else "")
         self.text, self.icon, self.cmd = text, icon, cmd
         self.fill, self.fg, self.hover, self.icon_fg = fill, fg, hover, icon_fg
         self.h, self.padx, self.size, self.fixed_w, self.anchor = h, padx, size, width, anchor
-        self.radius = h // 2 if radius is None else radius
+        self.radius = 6 if radius is None else radius
+        self.outline, self.kind = outline, kind
         self._over = False
         if cmd:
             self.bind("<Enter>", lambda e: self._hov(True))
@@ -1399,7 +1432,7 @@ class Pill(tk.Canvas):
             self.draw()
 
     def draw(self):
-        ft, ift = font(self.size, "semi"), icon_font(self.size + 1)
+        ft, ift = font(self.size, self.kind), icon_font(self.size + 1)
         tw = measure(ft, self.text) if self.text else 0
         iw = measure(ift, self.icon) if self.icon else 0
         gap = 8 if self.icon and self.text else 0
@@ -1407,16 +1440,20 @@ class Pill(tk.Canvas):
         if int(float(self.cget("width"))) != w:
             self.configure(width=w)
         fill = self.hover if self._over and self.hover else self.fill
+        on_red = self.fill == ACCENT and self.fg == WHITE      # dark text on gem red, like the site
+        fg = ON_ACCENT if on_red else self.fg
+        ifg = ON_ACCENT if on_red else self.icon_fg or self.fg
         self.delete("all")
-        self._img = rr(w, self.h, self.radius, fill)
+        line = self.outline or (EDGE if self.fill == FIELD else None)
+        self._img = rr(w, self.h, self.radius, fill, line)
         self.create_image(0, 0, image=self._img, anchor="nw")
         x = self.padx if self.anchor == "w" else (w - tw - iw - gap) / 2
         if self.icon:
             self.create_text(x, self.h / 2 + 1, text=self.icon, font=ift, anchor="w",
-                             fill=self.icon_fg or self.fg)
+                             fill=ifg)
             x += iw + gap
         if self.text:
-            self.create_text(x, self.h / 2, text=self.text, font=ft, anchor="w", fill=self.fg)
+            self.create_text(x, self.h / 2, text=self.text, font=ft, anchor="w", fill=fg)
 
 
 class Seg(tk.Canvas):
@@ -1438,18 +1475,20 @@ class Seg(tk.Canvas):
 
     def draw(self):
         self.delete("all")
-        self._imgs = [rr(self.w, self.h, 9, FIELD)]
+        self._imgs = [rr(self.w, self.h, 7, FIELD, EDGE)]
         self.create_image(0, 0, image=self._imgs[0], anchor="nw")
         ft = font(self.size, "semi")
         for i, (v, lbl) in enumerate(self.opts):
             x, sel = 3 + i * self.sw, v == self.value
             if sel:
-                im = rr(self.sw, self.h - 6, 7,
+                im = rr(self.sw, self.h - 6, 5,
                         self.colors.get(v, ACCENT) if self.enabled else SEL_OFF)
                 self._imgs.append(im)
                 self.create_image(x, 3, image=im, anchor="nw")
             self.create_text(x + self.sw / 2, self.h / 2, text=lbl, font=ft,
-                             fill=WHITE if sel else TEXT if self.enabled else MUTED)
+                             fill=(ON_ACCENT if self.colors.get(v, ACCENT) == ACCENT else WHITE)
+                             if sel and self.enabled else WHITE if sel else
+                             TEXT if self.enabled else MUTED)
 
     def _click(self, e):
         i = int((e.x - 3) // self.sw)
@@ -1502,7 +1541,7 @@ class Scroll(tk.Frame):
         self.bar.bind("<ButtonPress-1>", self._drag)
         self.bar.bind("<B1-Motion>", self._drag)
 
-    RADIUS = 14     # same as the cards
+    RADIUS = 10     # same as the cards
 
     def _resize(self, e):
         self.cv.itemconfigure(self._win, width=e.width)
@@ -1621,7 +1660,7 @@ class Field(tk.Canvas):
 
     def __init__(self, parent, w=70, h=34):
         super().__init__(parent, bg=parent["bg"], width=w, height=h, highlightthickness=0, bd=0)
-        self.ok, self.bad = rr(w, h, 8, FIELD), rr(w, h, 8, FIELD, outline=RED)
+        self.ok, self.bad = rr(w, h, 6, FIELD, outline=EDGE), rr(w, h, 6, FIELD, outline=RED)
         self.create_image(0, 0, image=self.ok, anchor="nw", tags="bg")
         self.entry = TimeEntry(self, font(11, "semi"))
         self.create_window(w // 2, h // 2, window=self.entry, width=w - 14, height=h - 12)
@@ -1633,7 +1672,7 @@ CROWNS = {1: ("#8fe3ff", "#4fb8e0", "#ffffff"), 2: ("#f4c84a", "#d19a1c", "#fff3
           3: ("#d3d9e1", "#9aa3ae", "#ffffff")}
 
 LOOK = {"idle": ("clock", MUTED, "Idle"), "walking": ("walk", ORANGE, "Marching"),
-        "returning": ("return", ACCENT, "Returning"),
+        "returning": ("return", BLUE, "Returning"),
         "update": ("sync", GOLD, "Scan now"), "gathering": ("timer", GREEN, "Gathering"),
         "ready": ("warn", RED, "Resend!"), "empty": ("unknown", MUTED, "Empty"),
         "skip": ("minus", MUTED, "Skipped")}
@@ -1737,6 +1776,7 @@ class App:
         side = tk.Frame(self.root, bg=SIDEBAR, width=236)
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
+        tk.Frame(self.root, bg=BORDER, width=1).pack(side="left", fill="y")
         main = tk.Frame(self.root, bg=BG)
         main.pack(side="left", fill="both", expand=True)
         self.build_sidebar(side)
@@ -1760,41 +1800,43 @@ class App:
         top.pack(fill="x", padx=18, pady=(20, 14))
         self._logo_sm = self.logo(30)
         tk.Label(top, image=self._logo_sm, bg=SIDEBAR).pack(side="left")
-        self.label(top, "ROK Gem Notifier", WHITE, 12, "semi").pack(side="left", padx=(10, 0))
+        self.label(top, "ROK Gem", WHITE, 13, "head").pack(side="left", padx=(10, 0))
+        self.label(top, "Notifier", ACCENT, 13, "head").pack(side="left", padx=(4, 0))
 
         st = tk.Frame(sd, bg=SIDEBAR)
         st.pack(fill="x", padx=18, pady=(0, 16))
         ok = self.hotkeys_ok
-        Pill(st, "Live" if ok else "Hotkeys off", h=24, size=8, padx=10, fill=FIELD,
+        Pill(st, "Live" if ok else "Hotkeys off", h=24, size=8, padx=10, fill=FIELD, kind="med",
              fg=GREEN if ok else RED,
              tip=(lambda: " / ".join(key_label(k) for k in self.keys.values())
                   + " work everywhere, even in the game") if ok else
              "Hotkeys could not be registered - run the app as administrator").pack(side="left")
-        Pill(st, time.strftime("%d %b %Y"), h=24, size=8, padx=10, fill=FIELD, fg=TEXT
-             ).pack(side="left", padx=(6, 0))
-        Pill(st, f"v{APP_VERSION}", h=24, size=8, padx=10, fill=FIELD, fg=MUTED
-             ).pack(side="left", padx=(6, 0))
+        Pill(st, time.strftime("%d %b %Y"), h=24, size=8, padx=10, fill=FIELD, fg=TEXT,
+             kind="med").pack(side="left", padx=(6, 0))
+        Pill(st, f"v{APP_VERSION}", h=24, size=8, padx=10, fill=FIELD, fg=MUTED,
+             kind="med").pack(side="left", padx=(6, 0))
 
         for key, ic, name in (("marches", "walk", "Marches"), ("times", "timer", "Gather Times"),
                               ("settings", "settings", "Settings")):
-            Pill(sd, name, glyph(ic), lambda k=key: self.goto(k), fill=SIDEBAR, hover=FIELD,
-                 fg=WHITE, icon_fg=TEXT, h=38, size=10, width=204, radius=9, anchor="w",
-                 padx=12).pack(padx=16, pady=1, anchor="w")
-        Pill(sd, "Top Donators", glyph("star"), self.show_board, fill=SIDEBAR, hover=FIELD,
-             fg=WHITE, icon_fg=GOLD, h=38, size=10, width=204, radius=9, anchor="w", padx=12,
+            Pill(sd, name, glyph(ic), lambda k=key: self.goto(k), fill=SIDEBAR, hover=GROUP,
+                 fg=WHITE, icon_fg=TEXT, h=38, size=10, width=204, radius=6, anchor="w",
+                 padx=12, kind="med").pack(padx=16, pady=1, anchor="w")
+        Pill(sd, "Top Donators", glyph("star"), self.show_board, fill=SIDEBAR, hover=GROUP,
+             fg=WHITE, icon_fg=GOLD, h=38, size=10, width=204, radius=6, anchor="w", padx=12,
+             kind="med",
              tip="Everyone who supports the app").pack(padx=16, pady=1, anchor="w")
 
         foot = tk.Frame(sd, bg=SIDEBAR)
         foot.pack(side="bottom", fill="x", padx=16, pady=(0, 16))
-        gem = Box(foot, GROUP, radius=12, pad=(14, 12))
+        gem = Box(foot, GROUP, radius=8, pad=(14, 12), outline=BORDER)
         gem.pack(fill="x", pady=(0, 12))
         gb = gem.body
         for row, name in ((0, "Total gems"), (2, "Today")):
             self.label(gb, "◆", GEM_RED, 9).grid(row=row, column=0, sticky="w")
             self.label(gb, name, MUTED, 9, "semi").grid(row=row, column=1, sticky="w", padx=(6, 0))
-        self.gem_total = self.label(gb, "", WHITE, 16, "semi")
+        self.gem_total = self.label(gb, "", WHITE, 18, "head")
         self.gem_total.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 6))
-        self.gem_day = self.label(gb, "", WHITE, 13, "semi")
+        self.gem_day = self.label(gb, "", WHITE, 14, "head")
         self.gem_day.grid(row=3, column=0, columnspan=2, sticky="w")
         Tip(gem, "Gem Mine level x = x*10 gems per finished gather (L1 10 ... L4 40).\n"
                  "Commander talents and buffs are not counted. Today resets at midnight.")
@@ -1803,18 +1845,18 @@ class App:
         self.key_chips = {}
         for action, what in HOTKEY_ACTIONS:
             self.key_chips[action] = Pill(keys, f"{key_label(self.keys[action])} {what}", h=24,
-                                          size=8, padx=8, fill=FIELD, fg=TEXT)
+                                          size=8, padx=8, fill=FIELD, fg=TEXT, kind="med")
             self.key_chips[action].pack(side="left", padx=(0, 5))
-        Pill(foot, "Donate", glyph("heart"), self.donate, fill="#3a1f2c", hover="#4a2638",
-             fg=WHITE, icon_fg=PINK, h=34, size=9, width=204, radius=9,
+        Pill(foot, "Donate", glyph("heart"), self.donate, fill=ACCENT_SOFT, hover="#3a201d",
+             fg=WHITE, icon_fg=PINK, h=34, size=9, width=204, outline=ACCENT_LINE,
              tip="Like the app? Support it on PayPal").pack(anchor="w", pady=(0, 6))
         Pill(foot, "Generate Bug Report", glyph("bug"), self.report_bug, fill=FIELD, hover=FIELD_HI,
-             fg=WHITE, icon_fg=TEXT, h=34, size=9, width=204, radius=9,
+             fg=WHITE, icon_fg=TEXT, h=34, size=9, width=204,
              tip="Saves one zip on your Desktop with the error log, your settings and the last "
                  "failed scan. Send it on Discord with a short description of the problem."
              ).pack(anchor="w", pady=(0, 10))
         self.label(foot, "Found a bug? Contact", MUTED, 8).pack(anchor="w")
-        bug = self.label(foot, f"@{DISCORD_NAME} on Discord", "#8ea1f0", 9, "semi", cursor="hand2")
+        bug = self.label(foot, f"@{DISCORD_NAME} on Discord", ACCENT, 9, "semi", cursor="hand2")
         bug.pack(anchor="w")
         bug.bind("<Button-1>", lambda e: self.copy_discord())
         Tip(bug, "Click to copy the Discord name")
@@ -1985,7 +2027,7 @@ class App:
         self.cl_lines, self.cl_fit = [], None
         for n, (ver, date, items) in enumerate(CHANGELOG):
             top = tk.Frame(box, bg=SIDEBAR)
-            self.label(top, f"v{ver}", WHITE if ver == APP_VERSION else TEXT, 10, "semi").pack(side="left")
+            self.label(top, f"v{ver}", WHITE if ver == APP_VERSION else TEXT, 10, "head").pack(side="left")
             self.label(top, date, MUTED, 8).pack(side="left", padx=(8, 0), pady=(2, 0))
             self.cl_lines.append((top, (12 if n else 0, 4), True))
             for it in items:
@@ -2025,11 +2067,14 @@ class App:
         tk.Label(h, image=self._logo_hd, bg=BG).pack(side="left")
         t = tk.Frame(h, bg=BG)
         t.pack(side="left", padx=(14, 0))
-        self.label(t, "ROK Gem Notifier", TITLE_RED, 19, "semi").pack(anchor="w")
+        nm = tk.Frame(t, bg=BG)
+        nm.pack(anchor="w")
+        self.label(nm, "ROK Gem", WHITE, 21, "head").pack(side="left")
+        self.label(nm, "Notifier", TITLE_RED, 21, "head").pack(side="left", padx=(7, 0))
         self.label(t, "Gem march timers for Rise of Kingdoms", MUTED, 9).pack(anchor="w")
 
-        self.scan_btn = Pill(h, "Scan", glyph("scan"), self.start_scan, fill="#f3f4f6",
-                             fg="#111317", hover="#ffffff", h=44, size=11, padx=24,
+        self.scan_btn = Pill(h, "Scan", glyph("scan"), self.start_scan, fill=ACCENT,
+                             fg=ON_ACCENT, hover=ACCENT_HI, h=42, size=11, padx=24,
                              tip=lambda: f"Read the Troops list on screen ({key_label(self.keys['scan'])})")
         self.scan_btn.pack(side="right")
         btn = dict(h=42, width=42, fill=FIELD, hover=FIELD_HI, size=11, fg=WHITE)
@@ -2042,7 +2087,7 @@ class App:
                                          f"({key_label(self.keys['move'])})", **btn)
         self.clear_btn = Pill(h, "", glyph("trash"), self.clear,
                               tip=lambda: f"Clear all timers ({key_label(self.keys['clear'])})",
-                              **dict(btn, fill=RED, hover="#ef6a6e"))
+                              **dict(btn, icon_fg=RED))
         for b in (self.tray_btn, self.ov_btn, self.move_btn, self.clear_btn):
             b.pack(side="right", padx=(0, 10))
 
@@ -2051,16 +2096,16 @@ class App:
         """Full-page leaderboard that replaces the cards until Back is clicked."""
         self.board = Scroll(m, BG)
         b = self.board.body
-        top = Box(b, CARD, radius=14, pad=(20, 16), outline=BORDER)
+        top = Box(b, CARD, radius=10, pad=(20, 16), outline=BORDER)
         top.pack(fill="x", pady=(0, 16))
         head = tk.Frame(top.body, bg=CARD)
         head.pack(fill="x")
         Pill(head, "Back", glyph("back"), self.hide_board, h=34, size=9, fill=FIELD,
              hover=FIELD_HI, tip="Back to the timers").pack(side="left")
         self.icon(head, "star", GOLD, 14).pack(side="left", padx=(16, 8))
-        self.label(head, "Top Donators", WHITE, 15, "semi").pack(side="left")
-        Pill(head, "Donate", glyph("heart"), self.donate, fill="#3a1f2c", hover="#4a2638",
-             fg=WHITE, icon_fg=PINK, h=34, size=9, padx=16,
+        self.label(head, "Top Donators", WHITE, 16, "head").pack(side="left")
+        Pill(head, "Donate", glyph("heart"), self.donate, fill=ACCENT_SOFT, hover="#3a201d",
+             fg=WHITE, icon_fg=PINK, h=34, size=9, padx=16, outline=ACCENT_LINE,
              tip="Support the app on PayPal").pack(side="right")
         self.label(top.body, "Tysm for being absolute beasts, for both using and donating to my "
                              "tiny app. Even you using it is awesome :p\n"
@@ -2109,7 +2154,8 @@ class App:
             else:
                 d.ellipse([0, 0, S - 1, S - 1], fill=FIELD_HI)
                 try:
-                    f = ImageFont.truetype(r"C:\Windows\Fonts\seguisb.ttf", int(S * 0.42))
+                    f = ImageFont.truetype(asset(os.path.join("fonts", "Inter-SemiBold.ttf")),
+                                           int(S * 0.42))
                     d.text((S / 2, S / 2), str(rank), font=f, fill=TEXT, anchor="mm")
                 except Exception:
                     pass
@@ -2131,13 +2177,13 @@ class App:
             note = ("Offline - showing the list saved last time. " + note).strip()
         self.board_note.configure(text=note)
         if not donors:
-            box = Box(self.board_list, GROUP, radius=12, pad=(20, 18))
+            box = Box(self.board_list, GROUP, radius=8, pad=(20, 18))
             box.pack(fill="x")
             self.label(box.body, "No donators yet - be the first!", WHITE, 11, "semi").pack(anchor="w")
             self.label(box.body, "Your name could be at the top of this list.", MUTED, 9).pack(anchor="w")
             return
         for rank, (name, amount, msg) in enumerate(donors, 1):
-            box = Box(self.board_list, GROUP, radius=12, pad=(16, 10))
+            box = Box(self.board_list, GROUP, radius=8, pad=(16, 10))
             box.pack(fill="x", pady=(0, 8))
             rb = box.body
             tk.Label(rb, image=self.medal(rank), bg=GROUP, bd=0).pack(side="left", padx=(0, 14))
@@ -2147,11 +2193,11 @@ class App:
                        12 if rank <= 3 else 11, "semi", anchor="w").pack(anchor="w")
             if msg:
                 self.label(mid, f'"{msg}"', MUTED, 9, anchor="w").pack(anchor="w")
-            self.label(rb, fmt_money(cur, amount), GREEN, 13 if rank <= 3 else 11, "semi"
+            self.label(rb, fmt_money(cur, amount), GREEN, 14 if rank <= 3 else 12, "head"
                        ).pack(side="right")
 
     def build_update_bar(self, m):
-        self.upd_box = Box(m, "#152238", radius=14, pad=(18, 10), outline="#24406b")
+        self.upd_box = Box(m, ACCENT_SOFT, radius=10, pad=(18, 10), outline=ACCENT_LINE)
         ub = self.upd_box.body
         self.icon(ub, "sync", ACCENT, 13).pack(side="left")
         self.upd_text = self.label(ub, "", WHITE, 10, "semi", anchor="w")
@@ -2160,16 +2206,16 @@ class App:
         Pill(ub, "Later", "", lambda: self.upd_box.pack_forget(), h=32, size=9, fill=FIELD,
              hover=FIELD_HI).pack(side="right")
         self.upd_go = Pill(ub, "Update now", "", self.start_update, h=32, size=9, fill=ACCENT,
-                           hover=ACCENT_HI)
+                           hover=ACCENT_HI, fg=ON_ACCENT)
         self.upd_go.pack(side="right", padx=(0, 8))
 
     def build_log(self, m):
-        box = Box(m, CARD, radius=14, pad=(18, 12), outline=BORDER)
+        box = Box(m, CARD, radius=10, pad=(18, 12), outline=BORDER)
         box.pack(side="bottom", fill="x", padx=(28, 24), pady=(0, 18))
         head = tk.Frame(box.body, bg=CARD)
         head.pack(fill="x")
         self.icon(head, "log", TEXT, 11).pack(side="left")
-        self.label(head, "Log", WHITE, 10, "semi").pack(side="left", padx=(8, 0))
+        self.label(head, "Log", WHITE, 11, "head").pack(side="left", padx=(8, 0))
         self.result_txt = tk.Text(box.body, width=100, height=1, bg=CARD, bd=0,
                                   highlightthickness=0, wrap="word", cursor="arrow",
                                   font=font(10), takefocus=0, padx=0, pady=0)
@@ -2181,12 +2227,12 @@ class App:
                         f"({key_label(self.keys['scan'])})")
 
     def section(self, parent, key, ic, title, tip=None):
-        box = Box(parent, CARD, radius=14, pad=(20, 16), outline=BORDER)
+        box = Box(parent, CARD, radius=10, pad=(20, 16), outline=BORDER)
         box.pack(fill="x", pady=(0, 16))
         head = tk.Frame(box.body, bg=CARD)
         head.pack(fill="x")
         self.icon(head, ic, TEXT, 12).pack(side="left")
-        ttl = self.label(head, title, WHITE, 11, "semi")
+        ttl = self.label(head, title, WHITE, 13, "head")
         ttl.pack(side="left", padx=(10, 6))
         if tip:
             self.info(head, tip).pack(side="left")
@@ -2223,7 +2269,7 @@ class App:
                                "and again once gathering; the overlay shows the same timers.")
         self.rows = []
         for i in range(MAX_MARCHES):
-            box = Box(body, GROUP, radius=10, pad=(16, 10))
+            box = Box(body, GROUP, radius=8, pad=(16, 10))
             b = box.body
             w = {"box": box}
             w["idx"] = self.label(b, f"M{i + 1}", MUTED, 9, "semi", width=3, anchor="w")
@@ -2236,8 +2282,8 @@ class App:
             w["subl"] = [self.label(sub, "", TEXT, 9, padx=0) for _ in range(3)]
             for lb in w["subl"]:
                 lb.pack(side="left")
-            w["chip"] = Pill(b, "", h=26, size=9, width=104, fill=FIELD, fg=MUTED)
-            w["time"] = self.label(b, "", WHITE, 13, "semi", width=9, anchor="e")
+            w["chip"] = Pill(b, "", h=26, size=9, width=104, fill=FIELD, fg=MUTED, kind="med")
+            w["time"] = self.label(b, "", WHITE, 14, "head", width=9, anchor="e")
             w["bar"] = Bar(b, 150, 6)
             w["idx"].grid(row=0, column=0, sticky="w")
             w["icon"].grid(row=0, column=1, sticky="w", padx=(0, 8))
@@ -2275,7 +2321,7 @@ class App:
             self.t_holder.columnconfigure(c, weight=1, uniform="t")
         self.trows = []
         for i in range(MAX_MARCHES):
-            box = Box(self.t_holder, GROUP, radius=10, pad=(16, 12))
+            box = Box(self.t_holder, GROUP, radius=8, pad=(16, 12))
             b = box.body
             top = tk.Frame(b, bg=GROUP)
             top.pack(fill="x")
@@ -2301,7 +2347,7 @@ class App:
 
     def build_settings(self, parent):
         _, body = self.section(parent, "settings", "settings", "Settings")
-        grp = Box(body, GROUP, radius=10, pad=(18, 14))
+        grp = Box(body, GROUP, radius=8, pad=(18, 14))
         grp.pack(fill="x")
         g = grp.body
         for c in (0, 1):
@@ -3132,7 +3178,10 @@ class App:
         ic, col, chip = LOOK[look]
         w["icon"].configure(text=glyph(ic), fg=col)
         w["name"].configure(text=name, fg=WHITE if s.gatherer else MUTED)
-        w["chip"].set(text=chip, fg=col)
+        if col == MUTED:
+            w["chip"].set(text=chip, fg=col, fill=FIELD, outline=None)
+        else:                       # tinted badge: soft fill + outline in the status colour
+            w["chip"].set(text=chip, fg=col, fill=mix(col, GROUP, .12), outline=mix(col, GROUP, .38))
         self.set_sub(w, sub)
         frac, text, tcol = None, "", WHITE
         if s.gatherer and s.status in ("walking", "returning") and s.walk_due:
