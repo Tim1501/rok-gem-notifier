@@ -118,7 +118,7 @@ import cv2
 import numpy as np
 import pytesseract
 
-APP_VERSION = "1.0.8"
+APP_VERSION = "1.0.9"
 UPDATE_REPO = "Tim1501/rok-gem-notifier"     # GitHub repository new versions are published in
 UPDATE_ASSET = "ROK-Gem-Notifier.exe"     # release file name (+ ".sha256" checksum file)
 HOTKEY_ACTIONS = (("scan", "Scan"), ("move", "Move"), ("clear", "Clear"))
@@ -133,7 +133,7 @@ DONORS_FILE = "donors.json"               # last list downloaded, for offline us
 # Newest first. Shown in the sidebar under "What's new"; release.py uses the
 # entry of the version it publishes as the GitHub release notes.
 CHANGELOG = [
-    ("1.0.9", "2026-11-05", [
+    ("1.0.9", "2026-11-14", [
         "New look: warm dark theme with purple accents",
         "New fonts: Inter and Space Grotesk",
         "Live bar at the top: gems, next resend and clock",
