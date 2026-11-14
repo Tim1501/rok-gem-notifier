@@ -136,6 +136,8 @@ CHANGELOG = [
     ("1.0.9", "2026-11-05", [
         "New look: warm dark theme with gem red accents",
         "New fonts: Inter and Space Grotesk",
+        "Live bar at the top: gems, next resend and clock",
+        "Dark title bar and highlighted menu item",
         "Scanning now corrects a gather timer that is off by 5 seconds or more",
     ]),
     ("1.0.8", "2026-11-05", [
@@ -356,6 +358,7 @@ def gem_level(label):
 BG, SIDEBAR, CARD, GROUP = "#14110f", "#181513", "#1e1b19", "#262220"
 FIELD, FIELD_HI, BORDER = "#2e2a28", "#3a3634", "#302c2a"
 EDGE = "#3d3936"           # thin outline of buttons and fields
+TOPBAR = "#0f0d0c"         # live strip along the top of the window
 PANEL, INPUT_BG, LINE = CARD, FIELD, BORDER          # older names, still used by the overlay
 TEXT, MUTED, WHITE = "#a6a09b", "#79716b", "#fafaf9"
 GRAY = MUTED
@@ -1272,6 +1275,25 @@ def rr(w, h, r, fill, outline=None):
     return im
 
 
+def dark_titlebar(win, color):
+    """Windows 11: dark title bar in the app's own colour instead of the white default."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        win.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
+        dwm = ctypes.windll.dwmapi.DwmSetWindowAttribute
+        on = ctypes.c_int(1)
+        dwm(hwnd, 20, ctypes.byref(on), 4)                    # dark mode (Windows 10 2004+)
+        r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+        cap = ctypes.c_int(r | g << 8 | b << 16)
+        dwm(hwnd, 35, ctypes.byref(cap), 4)                   # caption colour (Windows 11)
+        dwm(hwnd, 34, ctypes.byref(cap), 4)                   # border colour (Windows 11)
+    except Exception:
+        pass
+
+
 def mix(c1, c2, t):
     """Colour c1 laid over c2 at strength t (0..1), as #rrggbb."""
     a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
@@ -1696,6 +1718,7 @@ class App:
         except Exception:
             pass
         root.configure(bg=BG)
+        dark_titlebar(root, TOPBAR)
         root.geometry("1280x900")
         root.minsize(1120, 620)
 
@@ -1773,6 +1796,7 @@ class App:
 
     # ---------- layout
     def build(self):
+        self.build_topbar(self.root)
         side = tk.Frame(self.root, bg=SIDEBAR, width=236)
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
@@ -1803,43 +1827,23 @@ class App:
         self.label(top, "ROK Gem", WHITE, 13, "head").pack(side="left", padx=(10, 0))
         self.label(top, "Notifier", ACCENT, 13, "head").pack(side="left", padx=(4, 0))
 
-        st = tk.Frame(sd, bg=SIDEBAR)
-        st.pack(fill="x", padx=18, pady=(0, 16))
-        ok = self.hotkeys_ok
-        Pill(st, "Live" if ok else "Hotkeys off", h=24, size=8, padx=10, fill=FIELD, kind="med",
-             fg=GREEN if ok else RED,
-             tip=(lambda: " / ".join(key_label(k) for k in self.keys.values())
-                  + " work everywhere, even in the game") if ok else
-             "Hotkeys could not be registered - run the app as administrator").pack(side="left")
-        Pill(st, time.strftime("%d %b %Y"), h=24, size=8, padx=10, fill=FIELD, fg=TEXT,
-             kind="med").pack(side="left", padx=(6, 0))
-        Pill(st, f"v{APP_VERSION}", h=24, size=8, padx=10, fill=FIELD, fg=MUTED,
-             kind="med").pack(side="left", padx=(6, 0))
-
+        self.label(sd, "MENU", MUTED, 8, "semi").pack(anchor="w", padx=20, pady=(4, 6))
+        self.nav = {}
         for key, ic, name in (("marches", "walk", "Marches"), ("times", "timer", "Gather Times"),
                               ("settings", "settings", "Settings")):
-            Pill(sd, name, glyph(ic), lambda k=key: self.goto(k), fill=SIDEBAR, hover=GROUP,
-                 fg=WHITE, icon_fg=TEXT, h=38, size=10, width=204, radius=6, anchor="w",
-                 padx=12, kind="med").pack(padx=16, pady=1, anchor="w")
-        Pill(sd, "Top Donators", glyph("star"), self.show_board, fill=SIDEBAR, hover=GROUP,
-             fg=WHITE, icon_fg=GOLD, h=38, size=10, width=204, radius=6, anchor="w", padx=12,
-             kind="med",
-             tip="Everyone who supports the app").pack(padx=16, pady=1, anchor="w")
+            self.nav[key] = Pill(sd, name, glyph(ic), lambda k=key: self.goto(k), fill=SIDEBAR,
+                                 hover=GROUP, fg=WHITE, icon_fg=TEXT, h=38, size=10, width=204,
+                                 radius=6, anchor="w", padx=12, kind="med")
+            self.nav[key].pack(padx=16, pady=1, anchor="w")
+        self.nav["board"] = Pill(sd, "Top Donators", glyph("star"), self.show_board, fill=SIDEBAR,
+                                 hover=GROUP, fg=WHITE, icon_fg=GOLD, h=38, size=10, width=204,
+                                 radius=6, anchor="w", padx=12, kind="med",
+                                 tip="Everyone who supports the app")
+        self.nav["board"].pack(padx=16, pady=1, anchor="w")
+        self.set_nav("marches")
 
         foot = tk.Frame(sd, bg=SIDEBAR)
         foot.pack(side="bottom", fill="x", padx=16, pady=(0, 16))
-        gem = Box(foot, GROUP, radius=8, pad=(14, 12), outline=BORDER)
-        gem.pack(fill="x", pady=(0, 12))
-        gb = gem.body
-        for row, name in ((0, "Total gems"), (2, "Today")):
-            self.label(gb, "◆", GEM_RED, 9).grid(row=row, column=0, sticky="w")
-            self.label(gb, name, MUTED, 9, "semi").grid(row=row, column=1, sticky="w", padx=(6, 0))
-        self.gem_total = self.label(gb, "", WHITE, 18, "head")
-        self.gem_total.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 6))
-        self.gem_day = self.label(gb, "", WHITE, 14, "head")
-        self.gem_day.grid(row=3, column=0, columnspan=2, sticky="w")
-        Tip(gem, "Gem Mine level x = x*10 gems per finished gather (L1 10 ... L4 40).\n"
-                 "Commander talents and buffs are not counted. Today resets at midnight.")
         keys = tk.Frame(foot, bg=SIDEBAR)
         keys.pack(fill="x", pady=(0, 10))
         self.key_chips = {}
@@ -1861,6 +1865,77 @@ class App:
         bug.bind("<Button-1>", lambda e: self.copy_discord())
         Tip(bug, "Click to copy the Discord name")
         self.build_changelog(sd)       # after the footer, so it only takes the space left
+
+    def build_topbar(self, root):
+        """Thin live strip along the top (like kingshot.net): status, gems, next resend, clock."""
+        bar = tk.Frame(root, bg=TOPBAR, height=34)
+        bar.pack(side="top", fill="x")
+        bar.pack_propagate(False)
+        tk.Frame(root, bg=BORDER, height=1).pack(side="top", fill="x")
+        self.tb, self.tb_mark = {}, {}
+
+        def item(key, mark, mark_fg, name, side="left", tip=None, mark_font=None):
+            f = tk.Frame(bar, bg=TOPBAR)
+            f.pack(side=side, padx=(20, 0) if side == "left" else (0, 20))
+            parts = []
+            if mark:
+                m = self.label(f, mark, mark_fg, 8)
+                if mark_font:
+                    m.configure(font=mark_font)
+                m.pack(side="left", padx=(0, 6))
+                parts.append(m)
+            n = self.tb_mark[key] = self.label(f, name, MUTED, 9)
+            n.pack(side="left")
+            v = self.tb[key] = self.label(f, "", WHITE, 9, "semi")
+            v.pack(side="left", padx=(6, 0))
+            if tip:
+                for w in (f, n, v, *parts):
+                    Tip(w, tip)
+
+        ok = self.hotkeys_ok
+        f = tk.Frame(bar, bg=TOPBAR)
+        f.pack(side="left", padx=(18, 4))
+        self.label(f, "●", GREEN if ok else RED, 8).pack(side="left", padx=(0, 6))
+        live = self.label(f, "Live" if ok else "Hotkeys off", WHITE, 9, "semi")
+        live.pack(side="left")
+        Tip(live, (lambda: " / ".join(key_label(k) for k in self.keys.values())
+                   + " work everywhere, even in the game") if ok else
+            "Hotkeys could not be registered - run the app as administrator")
+        gem_tip = ("Gem Mine level x = x*10 gems per finished gather (L1 10 ... L4 40).\n"
+                   "Commander talents and buffs are not counted.")
+        item("total", "◆", GEM_RED, "Total gems", tip=gem_tip)
+        item("today", "◆", GEM_RED, "Today", tip=gem_tip)
+        item("next", glyph("timer"), TEXT, "Next resend", mark_font=icon_font(9),
+             tip="The gather that ends first, and how long it has left")
+        item("clock", "", "", time.strftime("%a"), side="right")
+        item("reset", "", "", "Today resets in", side="right",
+             tip="The Today gem counter starts again at midnight")
+        self.label(bar, f"v{APP_VERSION}", MUTED, 9).pack(side="right", padx=(0, 20))
+
+    def paint_topbar(self, now):
+        self.tb["total"].configure(text=f"{GEMS['total']:,}")
+        self.tb["today"].configure(text=f"{GEMS['daily']:,}")
+        soon = [s for s in slots[:self.n] if s.gatherer and s.gather_due
+                and s.status in ("gathering", "ready")]
+        if soon:
+            s = min(soon, key=lambda s: s.gather_due)
+            left = s.gather_due - now
+            self.tb["next"].configure(text=f"{s.short}  {short(left) if left > 0 else 'NOW'}",
+                                      fg=RED if s.status == "ready" else WHITE)
+        else:
+            self.tb["next"].configure(text="-", fg=MUTED)
+        t = time.localtime(now)
+        mid = 86400 - (t.tm_hour * 3600 + t.tm_min * 60 + t.tm_sec)
+        self.tb["reset"].configure(text=f"{mid // 3600}h {mid % 3600 // 60:02d}m")
+        self.tb["clock"].configure(text=time.strftime("%H:%M:%S", t))
+        self.tb_mark["clock"].configure(text=time.strftime("%a", t))
+
+    def set_nav(self, key):
+        """Highlight the menu item of the page on screen."""
+        for k, p in self.nav.items():
+            on = k == key
+            p.set(fill=GROUP if on else SIDEBAR,
+                  icon_fg=ACCENT if on else GOLD if k == "board" else TEXT)
 
     # ---------- hotkeys
     def register_hotkeys(self):
@@ -2100,7 +2175,8 @@ class App:
         top.pack(fill="x", pady=(0, 16))
         head = tk.Frame(top.body, bg=CARD)
         head.pack(fill="x")
-        Pill(head, "Back", glyph("back"), self.hide_board, h=34, size=9, fill=FIELD,
+        Pill(head, "Back", glyph("back"), lambda: (self.hide_board(), self.set_nav("marches")),
+             h=34, size=9, fill=FIELD,
              hover=FIELD_HI, tip="Back to the timers").pack(side="left")
         self.icon(head, "star", GOLD, 14).pack(side="left", padx=(16, 8))
         self.label(head, "Top Donators", WHITE, 16, "head").pack(side="left")
@@ -2113,7 +2189,7 @@ class App:
                              "donating on PayPal.\n"
                              "It might take a while for me to update the list since I do it "
                              "manually, but thanks again :p",
-                   TEXT, 9, wraplength=760, justify="left", anchor="w").pack(fill="x", pady=(12, 0))
+                   TEXT, 10, wraplength=860, justify="left", anchor="w").pack(fill="x", pady=(12, 0))
         self.board_note = self.label(top.body, "", MUTED, 8, anchor="w")
         self.board_note.pack(fill="x", pady=(4, 0))
         self.board_list = tk.Frame(b, bg=BG)
@@ -2121,6 +2197,7 @@ class App:
         self._medals = {}
 
     def show_board(self):
+        self.set_nav("board")
         if not self.board.winfo_manager():
             self.scroll.pack_forget()
             self.board.pack(fill="both", expand=True, padx=(28, 10), pady=(0, 14))
@@ -2179,7 +2256,7 @@ class App:
         if not donors:
             box = Box(self.board_list, GROUP, radius=8, pad=(20, 18))
             box.pack(fill="x")
-            self.label(box.body, "No donators yet - be the first!", WHITE, 11, "semi").pack(anchor="w")
+            self.label(box.body, "No donators yet - be the first!", WHITE, 13, "head").pack(anchor="w")
             self.label(box.body, "Your name could be at the top of this list.", MUTED, 9).pack(anchor="w")
             return
         for rank, (name, amount, msg) in enumerate(donors, 1):
@@ -2190,7 +2267,7 @@ class App:
             mid = tk.Frame(rb, bg=GROUP)
             mid.pack(side="left", fill="x", expand=True)
             self.label(mid, name, CROWNS[rank][0] if rank in CROWNS else WHITE,
-                       12 if rank <= 3 else 11, "semi", anchor="w").pack(anchor="w")
+                       14 if rank <= 3 else 12, "head", anchor="w").pack(anchor="w")
             if msg:
                 self.label(mid, f'"{msg}"', MUTED, 9, anchor="w").pack(anchor="w")
             self.label(rb, fmt_money(cur, amount), GREEN, 14 if rank <= 3 else 12, "head"
@@ -2259,6 +2336,7 @@ class App:
 
     def goto(self, key):
         self.hide_board()
+        self.set_nav(key)
         if key in self.collapsed:
             self.toggle_section(key)
         self.scroll.scroll_to(self.sec[key]["box"])
@@ -2998,8 +3076,7 @@ class App:
         if self.tray:
             self.keep_overlay()
         roll_day()
-        self.gem_total.configure(text=f"{GEMS['total']:,}")
-        self.gem_day.configure(text=f"{GEMS['daily']:,}")
+        self.paint_topbar(now)
         if changed:
             self.save_state()
 
