@@ -138,6 +138,7 @@ CHANGELOG = [
         "New fonts: Inter and Space Grotesk",
         "Live bar at the top: gems, next resend and clock",
         "Dark title bar and highlighted menu item",
+        "Log in a computer-style font (Space Mono)",
         "Scanning now corrects a gather timer that is off by 5 seconds or more",
     ]),
     ("1.0.8", "2026-11-05", [
@@ -1234,6 +1235,7 @@ def init_fonts():
     F["head"] = pick("Space Grotesk", "Segoe UI Semibold", "Helvetica")   # titles, timers
     F["icon"] = pick("Segoe Fluent Icons", "Segoe MDL2 Assets", "")
     F["mono"] = pick("Consolas", "Cascadia Mono", "Courier New", "Courier")
+    F["log"] = pick("Space Mono", "Consolas", "Courier New", "Courier")    # the Log box
 
 
 def font(size=10, kind="ui"):
@@ -2295,8 +2297,8 @@ class App:
         self.label(head, "Log", WHITE, 11, "head").pack(side="left", padx=(8, 0))
         self.result_txt = tk.Text(box.body, width=100, height=1, bg=CARD, bd=0,
                                   highlightthickness=0, wrap="word", cursor="arrow",
-                                  font=font(10), takefocus=0, padx=0, pady=0)
-        self.result_txt.tag_configure("head", foreground=GREEN, font=font(10, "semi"))
+                                  font=font(9, "log"), takefocus=0, padx=0, pady=0, spacing1=2)
+        self.result_txt.tag_configure("head", foreground=GREEN, font=(F["log"], 9, "bold"))
         self.result_txt.tag_configure("body", foreground=WHITE)
         self.result_txt.tag_configure("err", foreground=RED)
         self.result_txt.pack(fill="x", pady=(6, 0))
