@@ -1317,16 +1317,35 @@ def recolor(w, old, new):
 class Tip:
     """Small hover tooltip; text can be a string or a function returning one."""
 
-    def __init__(self, w, text):
+    def __init__(self, w, text, parts=()):
+        """parts: child widgets that belong to w and share this one tooltip."""
         self.w, self.text, self.win, self.job = w, text, None, None
-        w.bind("<Enter>", self._enter, add="+")
-        w.bind("<Leave>", self._leave, add="+")
-        w.bind("<ButtonPress>", self._leave, add="+")
+        for x in (w, *parts):
+            x.bind("<Enter>", self._enter, add="+")
+            x.bind("<Leave>", self._leave, add="+")
+            x.bind("<ButtonPress>", self._hide, add="+")
 
     def _enter(self, e):
-        self.job = self.w.after(400, self._show)
+        if not self.job and not self.win:
+            self.job = self.w.after(400, self._show)
+
+    def _inside(self):
+        """Is the mouse still over w (or one of its children)?"""
+        try:
+            x = self.w.winfo_containing(*self.w.winfo_pointerxy())
+        except Exception:
+            return False
+        while x is not None:
+            if x is self.w:
+                return True
+            x = x.master
+        return False
 
     def _leave(self, e=None):
+        if not self._inside():          # moving onto a child of w is not leaving
+            self._hide()
+
+    def _hide(self, e=None):
         if self.job:
             self.w.after_cancel(self.job)
             self.job = None
@@ -1870,6 +1889,8 @@ class App:
 
     def build_topbar(self, root):
         """Thin live strip along the top (like kingshot.net): status, gems, next resend, clock."""
+        # grey gap: keeps the live bar apart from the dark Windows title bar above it
+        tk.Frame(root, bg=FIELD_HI, height=3).pack(side="top", fill="x")
         bar = tk.Frame(root, bg=TOPBAR, height=34)
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
@@ -1891,8 +1912,7 @@ class App:
             v = self.tb[key] = self.label(f, "", WHITE, 9, "semi")
             v.pack(side="left", padx=(6, 0))
             if tip:
-                for w in (f, n, v, *parts):
-                    Tip(w, tip)
+                Tip(f, tip, (n, v, *parts))      # one tooltip for the whole item
 
         ok = self.hotkeys_ok
         f = tk.Frame(bar, bg=TOPBAR)
