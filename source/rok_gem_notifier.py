@@ -367,6 +367,8 @@ ACCENT, ACCENT_HI = "#a970ff", "#b98aff"
 ON_ACCENT = "#12051f"      # text on accent-coloured buttons
 ACCENT_SOFT, ACCENT_LINE = "#211a2a", "#45325f"    # banner fill / outline
 ACCENT_SOFT_HI = "#2b2138"                          # hover of soft accent buttons
+DONATE, DONATE_HI, DONATE_LINE = "#2a1816", "#3a201d", "#5e2f2b"   # Donate buttons stay red
+DISCORD = "#5865f2"        # Discord's own blue
 TEAL, RED, GREEN = "#3cc4b0", "#ef5a5e", "#4ccf7e"
 BLUE = "#4aa8ff"           # returning marches
 ORANGE, GOLD = "#f0a03c", "#e9c24f"
@@ -1873,8 +1875,8 @@ class App:
             self.key_chips[action] = Pill(keys, f"{key_label(self.keys[action])} {what}", h=24,
                                           size=8, padx=8, fill=FIELD, fg=TEXT, kind="med")
             self.key_chips[action].pack(side="left", padx=(0, 5))
-        Pill(foot, "Donate", glyph("heart"), self.donate, fill=ACCENT_SOFT, hover=ACCENT_SOFT_HI,
-             fg=WHITE, icon_fg=PINK, h=34, size=9, width=204, outline=ACCENT_LINE,
+        Pill(foot, "Donate", glyph("heart"), self.donate, fill=DONATE, hover=DONATE_HI,
+             fg=WHITE, icon_fg=PINK, h=34, size=9, width=204, outline=DONATE_LINE,
              tip="Like the app? Support it on PayPal").pack(anchor="w", pady=(0, 6))
         Pill(foot, "Generate Bug Report", glyph("bug"), self.report_bug, fill=FIELD, hover=FIELD_HI,
              fg=WHITE, icon_fg=TEXT, h=34, size=9, width=204,
@@ -1882,7 +1884,7 @@ class App:
                  "failed scan. Send it on Discord with a short description of the problem."
              ).pack(anchor="w", pady=(0, 10))
         self.label(foot, "Found a bug? Contact", MUTED, 8).pack(anchor="w")
-        bug = self.label(foot, f"@{DISCORD_NAME} on Discord", ACCENT, 9, "semi", cursor="hand2")
+        bug = self.label(foot, f"@{DISCORD_NAME} on Discord", DISCORD, 9, "semi", cursor="hand2")
         bug.pack(anchor="w")
         bug.bind("<Button-1>", lambda e: self.copy_discord())
         Tip(bug, "Click to copy the Discord name")
@@ -2203,8 +2205,8 @@ class App:
              hover=FIELD_HI, tip="Back to the timers").pack(side="left")
         self.icon(head, "star", GOLD, 14).pack(side="left", padx=(16, 8))
         self.label(head, "Top Donators", WHITE, 16, "head").pack(side="left")
-        Pill(head, "Donate", glyph("heart"), self.donate, fill=ACCENT_SOFT, hover=ACCENT_SOFT_HI,
-             fg=WHITE, icon_fg=PINK, h=34, size=9, padx=16, outline=ACCENT_LINE,
+        Pill(head, "Donate", glyph("heart"), self.donate, fill=DONATE, hover=DONATE_HI,
+             fg=WHITE, icon_fg=PINK, h=34, size=9, padx=16, outline=DONATE_LINE,
              tip="Support the app on PayPal").pack(side="right")
         self.label(top.body, "Tysm for being absolute beasts, for both using and donating to my "
                              "tiny app. Even you using it is awesome :p\n"
