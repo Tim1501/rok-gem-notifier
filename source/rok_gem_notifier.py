@@ -118,7 +118,7 @@ import cv2
 import numpy as np
 import pytesseract
 
-APP_VERSION = "1.0.9"
+APP_VERSION = "1.0.10"
 UPDATE_REPO = "Tim1501/rok-gem-notifier"     # GitHub repository new versions are published in
 UPDATE_ASSET = "ROK-Gem-Notifier.exe"     # release file name (+ ".sha256" checksum file)
 HOTKEY_ACTIONS = (("scan", "Scan"), ("move", "Move"), ("clear", "Clear"))
@@ -133,6 +133,9 @@ DONORS_FILE = "donors.json"               # last list downloaded, for offline us
 # Newest first. Shown in the sidebar under "What's new"; release.py uses the
 # entry of the version it publishes as the GitHub release notes.
 CHANGELOG = [
+    ("1.0.10", "2026-11-17", [
+        "App name now shows: ROK Gem Notifier - by ChanaMasala",
+    ]),
     ("1.0.9", "2026-11-14", [
         "New look: warm dark theme with purple accents",
         "New fonts: Inter and Space Grotesk",
@@ -1734,7 +1737,7 @@ class App:
         self.setup_locked = False
         init_fonts()
 
-        root.title("ROK Gem Notifier")
+        root.title("ROK Gem Notifier - by ChanaMasala")
         try:
             from PIL import ImageTk
             self._icon = ImageTk.PhotoImage(make_icon_image(64))
@@ -2171,6 +2174,8 @@ class App:
         nm.pack(anchor="w")
         self.label(nm, "ROK Gem", WHITE, 21, "head").pack(side="left")
         self.label(nm, "Notifier", TITLE_RED, 21, "head").pack(side="left", padx=(7, 0))
+        self.label(nm, "- by ChanaMasala", TEXT, 13, "head").pack(side="left", padx=(10, 0),
+                                                                 anchor="s", pady=(0, 5))
         self.label(t, "Gem march timers for Rise of Kingdoms", MUTED, 9).pack(anchor="w")
 
         self.scan_btn = Pill(h, "Scan", glyph("scan"), self.start_scan, fill=ACCENT,
@@ -3128,7 +3133,7 @@ class App:
             pystray.MenuItem("Exit", lambda icon, item: q.put(("tray_exit",))))
         try:
             self.tray = pystray.Icon("ROKGemNotifier", make_icon_image(64),
-                                     "ROK Gem Notifier", menu)
+                                     "ROK Gem Notifier - by ChanaMasala", menu)
             self.tray.run_detached()
         except Exception as e:
             log_error("tray", e)
