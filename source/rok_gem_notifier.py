@@ -133,6 +133,9 @@ DONORS_FILE = "donors.json"               # last list downloaded, for offline us
 # Newest first. Shown in the sidebar under "What's new"; release.py uses the
 # entry of the version it publishes as the GitHub release notes.
 CHANGELOG = [
+    ("1.0.11", "2026-11-27", [
+        "Custom title bar: name, Scan and buttons in one bar at the top",
+    ]),
     ("1.0.10", "2026-11-17", [
         "App name now shows: ROK Gem Notifier - by ChanaMasala",
     ]),
@@ -363,6 +366,8 @@ BG, SIDEBAR, CARD, GROUP = "#14110f", "#181513", "#1e1b19", "#262220"
 FIELD, FIELD_HI, BORDER = "#2e2a28", "#3a3634", "#302c2a"
 EDGE = "#3d3936"           # thin outline of buttons and fields
 TOPBAR = "#0f0d0c"         # live strip along the top of the window
+TITLEBAR = "#1c1917"       # the app's own title bar (custom window chrome)
+CLOSE_HOVER = "#c42b1c"    # Windows' red for the close button
 PANEL, INPUT_BG, LINE = CARD, FIELD, BORDER          # older names, still used by the overlay
 TEXT, MUTED, WHITE = "#a6a09b", "#79716b", "#fafaf9"
 GRAY = MUTED
@@ -383,11 +388,12 @@ TITLE_RED = ACCENT         # "Notifier" in the app name
 # Segoe Fluent Icons / Segoe MDL2 Assets glyphs (built into Windows 10/11)
 IC = {"scan": "", "settings": "", "info": "", "sound": "",
       "timer": "", "clock": "", "trash": "", "move": "",
-      "tray": "", "overlay": "", "area": "", "full": "",
+      "tray": "", "overlay": "", "area": "", "full": "",
       "lock": "", "unlock": "", "down": "", "up": "",
       "walk": "", "reset": "", "smart": "", "log": "",
       "warn": "", "sync": "", "people": "", "minus": "",
-      "unknown": "", "return": "\ue7a7", "heart": "", "keyboard": "", "bug": "\uebe8", "star": "\ue735", "back": "\ue72b"}
+      "unknown": "", "return": "\ue7a7", "heart": "", "keyboard": "", "bug": "\uebe8", "star": "\ue735", "back": "\ue72b",
+      "w_min": "\ue921", "w_max": "\ue922", "w_restore": "\ue923", "w_close": "\ue8bb"}
 
 
 # ================================================================ core
@@ -1302,6 +1308,80 @@ def dark_titlebar(win, color):
         pass
 
 
+_CHROME = {}    # keeps the window-procedure callback alive
+
+
+def custom_chrome(win):
+    """Hide the Windows title bar but keep a real window: taskbar button, Alt+Tab,
+    snapping, minimise/maximise, resize edges, shadow and round corners all stay.
+    The app draws its own title bar instead. Returns the window handle, or None
+    (then the normal Windows title bar is kept)."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes as wt
+        u = ctypes.windll.user32
+        LRESULT = ctypes.c_ssize_t
+        PROC = ctypes.WINFUNCTYPE(LRESULT, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
+        u.CallWindowProcW.restype = LRESULT
+        u.CallWindowProcW.argtypes = [ctypes.c_void_p, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+        u.SetWindowLongPtrW.restype = ctypes.c_void_p
+        u.SetWindowLongPtrW.argtypes = [wt.HWND, ctypes.c_int, ctypes.c_void_p]
+        u.MonitorFromWindow.restype = ctypes.c_void_p
+        u.MonitorFromWindow.argtypes = [wt.HWND, wt.DWORD]
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wt.DWORD), ("rcMonitor", wt.RECT),
+                        ("rcWork", wt.RECT), ("dwFlags", wt.DWORD)]
+
+        win.update_idletasks()
+        hwnd = u.GetParent(win.winfo_id())
+        st = {}
+
+        def proc(h, msg, wp, lp):
+            try:
+                if msg == 0x0083 and wp:          # WM_NCCALCSIZE: no caption, keep the side/bottom resize edges
+                    r = wt.RECT.from_address(lp)
+                    top = r.top
+                    res = u.CallWindowProcW(st["old"], h, msg, wp, lp)
+                    r.top = top
+                    if u.IsZoomed(h):              # maximised: don't hide the top under the screen edge
+                        mi = MONITORINFO()
+                        mi.cbSize = ctypes.sizeof(MONITORINFO)
+                        if u.GetMonitorInfoW(ctypes.c_void_p(u.MonitorFromWindow(h, 2)),
+                                             ctypes.byref(mi)):
+                            r.top = max(top, mi.rcWork.top)
+                    return res
+                if msg == 0x0086:                  # WM_NCACTIVATE: don't paint a caption
+                    return u.CallWindowProcW(st["old"], h, msg, wp, -1)
+            except Exception:
+                pass
+            return u.CallWindowProcW(st["old"], h, msg, wp, lp)
+
+        cb = PROC(proc)
+        st["old"] = u.SetWindowLongPtrW(hwnd, -4, ctypes.cast(cb, ctypes.c_void_p))   # GWLP_WNDPROC
+        if not st["old"]:
+            return None
+        _CHROME[hwnd] = (cb, st)
+        u.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0027)    # NOSIZE|NOMOVE|NOZORDER|FRAMECHANGED
+        return hwnd
+    except Exception as e:
+        log_error("window chrome", e)
+        return None
+
+
+def win_drag(hwnd, where=2):
+    """Let Windows move (where=2, title bar) or resize (12 = top edge) the window,
+    exactly as if its own title bar / border had been grabbed (snapping included)."""
+    try:
+        import ctypes
+        ctypes.windll.user32.ReleaseCapture()
+        ctypes.windll.user32.SendMessageW(hwnd, 0x00A1, where, 0)   # WM_NCLBUTTONDOWN
+    except Exception:
+        pass
+
+
 def mix(c1, c2, t):
     """Colour c1 laid over c2 at strength t (0..1), as #rrggbb."""
     a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
@@ -1745,7 +1825,8 @@ class App:
         except Exception:
             pass
         root.configure(bg=BG)
-        dark_titlebar(root, TOPBAR)
+        dark_titlebar(root, TITLEBAR)
+        self.hwnd = None if demo == "native" else custom_chrome(root)
         root.geometry("1280x900")
         root.minsize(1120, 620)
 
@@ -1823,6 +1904,7 @@ class App:
 
     # ---------- layout
     def build(self):
+        self.build_titlebar(self.root)
         self.build_topbar(self.root)
         side = tk.Frame(self.root, bg=SIDEBAR, width=236)
         side.pack(side="left", fill="y")
@@ -1831,7 +1913,7 @@ class App:
         main = tk.Frame(self.root, bg=BG)
         main.pack(side="left", fill="both", expand=True)
         self.build_sidebar(side)
-        self.build_header(main)
+        tk.Frame(main, bg=BG, height=20).pack(fill="x")
         self.build_update_bar(main)
         self.build_log(main)
         self.scroll = Scroll(main, BG)
@@ -1847,14 +1929,7 @@ class App:
             self.toggle_section(key, save=False)
 
     def build_sidebar(self, sd):
-        top = tk.Frame(sd, bg=SIDEBAR)
-        top.pack(fill="x", padx=18, pady=(20, 14))
-        self._logo_sm = self.logo(30)
-        tk.Label(top, image=self._logo_sm, bg=SIDEBAR).pack(side="left")
-        self.label(top, "ROK Gem", WHITE, 13, "head").pack(side="left", padx=(10, 0))
-        self.label(top, "Notifier", ACCENT, 13, "head").pack(side="left", padx=(4, 0))
-
-        self.label(sd, "MENU", MUTED, 8, "semi").pack(anchor="w", padx=20, pady=(4, 6))
+        self.label(sd, "MENU", MUTED, 8, "semi").pack(anchor="w", padx=20, pady=(20, 6))
         self.nav = {}
         for key, ic, name in (("marches", "walk", "Marches"), ("times", "timer", "Gather Times"),
                               ("settings", "settings", "Settings")):
@@ -1895,8 +1970,7 @@ class App:
 
     def build_topbar(self, root):
         """Thin live strip along the top (like kingshot.net): status, gems, next resend, clock."""
-        # grey gap: keeps the live bar apart from the dark Windows title bar above it
-        tk.Frame(root, bg=FIELD_HI, height=3).pack(side="top", fill="x")
+        tk.Frame(root, bg=BORDER, height=1).pack(side="top", fill="x")
         bar = tk.Frame(root, bg=TOPBAR, height=34)
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
@@ -2163,38 +2237,87 @@ class App:
             w.pack(fill="x", pady=pady)
             used += h
 
-    def build_header(self, m):
-        h = tk.Frame(m, bg=BG)
-        h.pack(fill="x", padx=28, pady=(20, 16))
-        self._logo_hd = self.logo(46, rounded=True)
-        tk.Label(h, image=self._logo_hd, bg=BG).pack(side="left")
-        t = tk.Frame(h, bg=BG)
-        t.pack(side="left", padx=(14, 0))
-        nm = tk.Frame(t, bg=BG)
-        nm.pack(anchor="w")
-        self.label(nm, "ROK Gem", WHITE, 21, "head").pack(side="left")
-        self.label(nm, "Notifier", TITLE_RED, 21, "head").pack(side="left", padx=(7, 0))
-        self.label(nm, "- by ChanaMasala", TEXT, 13, "head").pack(side="left", padx=(10, 0),
-                                                                 anchor="s", pady=(0, 5))
-        self.label(t, "Gem march timers for Rise of Kingdoms", MUTED, 9).pack(anchor="w")
+    def build_titlebar(self, root):
+        """The app's own title bar: name, Scan, tool buttons and the window buttons.
+        Drag it to move the window (snapping works), double-click to maximise."""
+        H = 44
+        bar = self.tbar = tk.Frame(root, bg=TITLEBAR, height=H)
+        bar.pack(side="top", fill="x")
+        bar.pack_propagate(False)
+        grip = tk.Frame(bar, bg=TITLEBAR, height=4, cursor="sb_v_double_arrow" if self.hwnd else "")
+        grip.place(x=0, y=0, relwidth=1)               # top edge: resize
+        if self.hwnd:
+            grip.bind("<ButtonPress-1>", lambda e: self.root.state() != "zoomed"
+                      and win_drag(self.hwnd, 12))
 
-        self.scan_btn = Pill(h, "Scan", glyph("scan"), self.start_scan, fill=ACCENT,
-                             fg=ON_ACCENT, hover=ACCENT_HI, h=42, size=11, padx=24,
+        left = tk.Frame(bar, bg=TITLEBAR)
+        left.pack(side="left", padx=(14, 0))
+        self._logo_tb = self.logo(22)
+        lg = tk.Label(left, image=self._logo_tb, bg=TITLEBAR)
+        lg.pack(side="left")
+        a = self.label(left, "ROK Gem", WHITE, 11, "head")
+        a.pack(side="left", padx=(10, 0))
+        b = self.label(left, "Notifier", TITLE_RED, 11, "head")
+        b.pack(side="left", padx=(4, 0))
+        c = self.label(left, "by ChanaMasala", MUTED, 9)
+        c.pack(side="left", padx=(10, 0), pady=(2, 0))
+        for w in (bar, left, lg, a, b, c):              # grab anywhere on the bar to move
+            w.bind("<ButtonPress-1>", self._tb_drag)
+            w.bind("<Double-Button-1>", lambda e: self.toggle_max())
+
+        # window buttons (right edge, full bar height, like Windows' own)
+        self.win_btns = {}
+        for key, ic, cmd, tip in (("close", "w_close", self.quit_app, "Close"),
+                                  ("max", "w_max", self.toggle_max, "Maximise"),
+                                  ("min", "w_min", self.minimize, "Minimise")):
+            lb = tk.Label(bar, text=glyph(ic) or {"close": "x", "max": "[]", "min": "_"}[key],
+                          bg=TITLEBAR, fg=TEXT, font=icon_font(8), width=6, padx=6)
+            lb.pack(side="right", fill="y")
+            hov = CLOSE_HOVER if key == "close" else FIELD
+            lb.bind("<Enter>", lambda e, w=lb, h=hov: w.configure(bg=h, fg=WHITE))
+            lb.bind("<Leave>", lambda e, w=lb: w.configure(bg=TITLEBAR, fg=TEXT))
+            lb.bind("<ButtonRelease-1>", lambda e, w=lb, f=cmd: (
+                0 <= e.x < w.winfo_width() and 0 <= e.y < w.winfo_height()) and f())
+            self.win_btns[key] = lb
+        tk.Frame(bar, bg=BORDER, width=1).pack(side="right", fill="y", pady=12, padx=(10, 6))
+
+        # app buttons
+        self.scan_btn = Pill(bar, "Scan", glyph("scan"), self.start_scan, fill=ACCENT,
+                             fg=ON_ACCENT, hover=ACCENT_HI, h=30, size=9, padx=16,
                              tip=lambda: f"Read the Troops list on screen ({key_label(self.keys['scan'])})")
         self.scan_btn.pack(side="right")
-        btn = dict(h=42, width=42, fill=FIELD, hover=FIELD_HI, size=11, fg=WHITE)
-        self.tray_btn = Pill(h, "", glyph("tray"), self.minimize_to_tray,
+        btn = dict(h=30, width=32, fill=FIELD, hover=FIELD_HI, size=9, fg=WHITE)
+        self.tray_btn = Pill(bar, "", glyph("tray"), self.minimize_to_tray,
                              tip="Hide to the system tray (timers keep running)", **btn)
-        self.ov_btn = Pill(h, "", glyph("overlay"), self.toggle_overlay,
+        self.ov_btn = Pill(bar, "", glyph("overlay"), self.toggle_overlay,
                            tip="Overlay on / off", **btn)
-        self.move_btn = Pill(h, "", glyph("move"), self.toggle_move,
+        self.move_btn = Pill(bar, "", glyph("move"), self.toggle_move,
                              tip=lambda: "Unlock the overlay to drag it, click again to lock "
                                          f"({key_label(self.keys['move'])})", **btn)
-        self.clear_btn = Pill(h, "", glyph("trash"), self.clear,
+        self.clear_btn = Pill(bar, "", glyph("trash"), self.clear,
                               tip=lambda: f"Clear all timers ({key_label(self.keys['clear'])})",
                               **dict(btn, icon_fg=RED))
         for b in (self.tray_btn, self.ov_btn, self.move_btn, self.clear_btn):
-            b.pack(side="right", padx=(0, 10))
+            b.pack(side="right", padx=(0, 6))
+        self.root.bind("<Configure>", self._win_state, add="+")
+
+    def _tb_drag(self, e):
+        if self.hwnd:
+            win_drag(self.hwnd)
+
+    def toggle_max(self):
+        self.root.state("normal" if self.root.state() == "zoomed" else "zoomed")
+
+    def minimize(self):
+        self.root.iconify()
+
+    def _win_state(self, e=None):
+        """Maximise button shows 'restore' while the window is maximised."""
+        z = self.root.state() == "zoomed"
+        b = self.win_btns["max"]
+        ic = glyph("w_restore" if z else "w_max")
+        if ic and b.cget("text") != ic:
+            b.configure(text=ic)
 
     # ---------- Top Donators page
     def build_board(self, m):
