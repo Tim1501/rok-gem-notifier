@@ -8,7 +8,8 @@ Setup inside the app:
   2. Open the Troops list and press F8 (or click Scan).
      Commanders are READ FROM THE SCREEN and filled into the march slots;
      after the first scan the count is locked (Reset unlocks it).
-  3. Known gatherers are tracked. Any other commander shows "Not a Gatherer".
+  3. Known gatherers are tracked. Any other commander is recognised by name
+     (the whole ROK commander list is built in) and shown as "Not a gatherer".
 
 Per scan:
    "Marching to Gather 00:xx:xx" -> countdown + target (e.g. Level 3 Gem Mine)
@@ -112,6 +113,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import unicodedata
 from tkinter import font as tkfont
 
 import cv2
@@ -137,6 +139,8 @@ CHANGELOG = [
         "Log keeps a history with times: scroll back, or Clear it",
         "Sidebar: bold menu, trophy for Top Donators, icons lined up",
         "Marches, Gather Times and Top Donators: compact one-line rows",
+        "Every ROK commander is recognised: others show by name as Not a gatherer",
+        "A march led by a fighter is no longer taken for its secondary gatherer",
     ]),
     ("1.0.12", "2026-11-27", [
         "New layout: every menu item is its own page",
@@ -222,6 +226,43 @@ GATHERERS = {
     "Wak Chanil Ajaw": "Chanil",
     "Yahya ibn Khalid": "Khalid",
 }
+# Every other commander in the game, so a march led by one of them is shown by its name
+# ("Not a gatherer") and is never mistaken for its secondary commander. Only the primary
+# commander (before the "/") is read. "Name|other spelling|..." - the first is shown.
+OTHER_COMMANDERS = (
+    # legendary
+    "Alexander the Great", "Alexander Nevsky", "Alp Arslan", "Amanitore", "Artemisia I",
+    "Archimedes", "Attila", "Afonso I|Afonso", "Achilles", "Ashurbanipal", "Babur", "Bai Qi",
+    "Bertrand du Guesclin", "Boudica Prime", "Belisarius Prime", "Vercingetorix", "William I",
+    "Hannibal Barca|Hannibal", "Hector", "Henry V", "Hermann Prime", "Gilgamesh",
+    "Gonzalo de Córdoba", "Gorgo", "Guan Yu", "Gajah Mada", "John Hunyadi", "Dido",
+    "Elizabeth I", "Joan of Arc Prime", "Zenobia", "Ivan the Terrible|Ivan IV",
+    "Ivar the Boneless|Ivar", "Imhotep", "Heraclius", "Gang Gam-chan", "Charlemagne",
+    "Charles Martel", "Cyrus the Great", "Constantine I", "Lapu-Lapu", "Leonidas I|Leonidas",
+    "Yi Seong-gye", "Yi Sun-sin", "Liu Che", "Lü Bu|Lu Bu", "Margaret I", "Maria Theresa",
+    "Matthias Corvinus", "Mehmed II", "Minamoto no Yoshitsune", "Moctezuma I",
+    "Mulan|Hua Mulan", "Nebuchadnezzar II", "Pakal II|Pakal the Great", "Pyrrhus",
+    "Ragnar Lodbrok", "Ragnar Lodbrok Prime", "Ramesses II", "Richard I|Richard the Lionheart",
+    "Saladin", "Sargon the Great", "Siyaj K'ak'", "Stephen the Great|Stephen III", "Subutai",
+    "Suleiman I", "Sun Tzu Prime", "Scipio Aemilianus", "Xiang Yu", "Takeda Shingen",
+    "Tariq ibn Ziyad", "Tokugawa Ieyasu", "Tomyris", "Trajan", "Thutmose III", "Wu Zetian",
+    "William Marshal", "William Wallace", "Philip II", "Flavius Aetius",
+    "Frederick I|Frederick Barbarossa", "Hayam Wuruk", "Harald Sigurdsson", "Huo Qubing",
+    "Honda Tadakatsu", "Cao Cao", "Qin Shi Huang", "Chandragupta Maurya", "Zhuge Liang",
+    "Genghis Khan", "Choe Yeong", "Cheok Jun-gyeong", "Shajar al-Durr", "Shapur I",
+    "Edward of Woodstock", "Eleanor of Aquitaine", "El Cid", "Aethelflaed|Æthelflæd",
+    "Julius Caesar", "Jadwiga", "Jan Žižka", "Arthur Pendragon",
+    # epic
+    "Baibars", "Belisarius", "Boudica", "Björn Ironside", "Hermann", "Diaochan",
+    "Catherine de' Medici", "Kira", "Kusunoki Masashige", "Lohar", "Narses", "Osman I",
+    "Pelagius", "Pericles", "Sun Tzu", "Scipio Africanus", "Eulji Mundeok",
+    # elite / advanced
+    "Gaius Marius", "Constance", "Lancelot", "Tomoe Gozen", "Šárka", "Dragon Lancer",
+    "Markswoman", "City Keeper", "Centurion",
+)
+# other spellings of the gatherers above
+GATHERER_ALIASES = {"Queen Seondeok": "Seondeok", "Tamar of Georgia": "Queen Tamar of Georgia",
+                    "Pepin the Short": "Pepin III", "Joan": "Joan of Arc"}
 MAX_MARCHES = 7
 TIME_RE = re.compile(r"(\d{1,2})\s*:\s*(\d{2})\s*:\s*(\d{2})")
 TARGET_RE = re.compile(r"l[vy][l1iI|]\.?\s*(\d)\s*([A-Za-z]+(?:\s+[A-Za-z]+)?)", re.I)
@@ -481,39 +522,105 @@ def ocr_lines(variant):
     return sorted(out)
 
 
-def match_listed(text):
-    """Return [(pos, ratio, full_name)] for gatherer names found in the text."""
-    low = text.lower()
-    letters = sum(ch.isalpha() for ch in low)
-    if letters < 8 or TIME_RE.search(low) or "unit" in low or "gather" in low:
-        return []
-    found = []
-    for full in GATHERERS:
-        fl, n = full.lower(), len(full)
+def fold(text):
+    """'Jan Žižka' -> 'Jan Zizka' (OCR reads plain letters)."""
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+
+
+_LOOKALIKE = str.maketrans({"l": "i", "1": "i", "|": "i", "!": "i", "0": "o", "5": "s"})
+
+
+def skeleton(text):
+    """Letters only, with the letters OCR mixes up made the same ('Casimir lll' = 'Casimir III')."""
+    return normalize(fold(text or "").lower().translate(_LOOKALIKE))
+
+
+def _commander_keys():
+    """(letters-only spelling, shown name, prepared matcher) for every commander."""
+    out = []
+    names = [(g, g) for g in GATHERERS] + list(GATHERER_ALIASES.items())
+    for entry in OTHER_COMMANDERS:
+        parts = entry.split("|")
+        names += [(v, parts[0]) for v in parts]
+    for spelling, shown in names:
+        key = skeleton(spelling)
+        if len(key) >= 4:
+            sm = difflib.SequenceMatcher(None)
+            sm.set_seq2(key)                  # analysed once; each text only sets seq1
+            out.append((key, shown, sm))
+    return out
+
+
+_CMD = _commander_keys()
+_CMD_CACHE = {}
+NOT_A_NAME = ("unit", "gather", "march", "return", "lv", "level", "mine", "troop",
+              "power", "load")
+
+
+def best_commander(text):
+    """The commander whose name is in this text (OCR mistakes allowed), or None.
+    If two names are in it, the first one (the primary commander) wins."""
+    t = skeleton(text)
+    if len(t) < 4:
+        return None
+    if t in _CMD_CACHE:
+        return _CMD_CACHE[t]
+    hits = []
+    for key, shown, sm in _CMD:
+        n = len(key)
+        need = 0.9 if n <= 5 else 0.84 if n <= 8 else 0.8      # short names must match closely
         best_r, best_i = 0.0, 0
-        for i in range(max(1, len(low) - n + 1)):
-            sm = difflib.SequenceMatcher(None, fl, low[i:i + n])
-            if sm.quick_ratio() < 0.7:
-                continue
-            r = sm.ratio()
-            if r > best_r:
-                best_r, best_i = r, i
-        if best_r >= 0.78:
-            found.append((best_i, best_r, full))
-    return found
+        if len(t) >= n:
+            for i in range(len(t) - n + 1):
+                sm.set_seq1(t[i:i + n])
+                if sm.quick_ratio() < need:
+                    continue
+                r = sm.ratio()
+                if r > best_r:
+                    best_r, best_i = r, i
+        else:                                  # read short: dropped letters or cut-off name
+            sm.set_seq1(t)
+            best_r = sm.ratio()
+            if len(t) >= 10:
+                best_r = max(best_r, difflib.SequenceMatcher(None, key[:len(t)], t).ratio() * 0.9)
+        if best_r >= need:
+            hits.append((best_i, -best_r, -n, shown))
+    name = None
+    if hits:
+        top = -min(h[1] for h in hits)
+        name = min(h for h in hits if -h[1] >= top - 0.1)[3]
+    if len(_CMD_CACHE) > 2000:
+        _CMD_CACHE.clear()
+    _CMD_CACHE[t] = name
+    return name
+
+
+def name_part(text):
+    """The primary-commander part of a line ('Sun Tzu / Joan of Arc' -> 'Sun Tzu'),
+    or None when the line is clearly not a commander line."""
+    low = text.lower()
+    if sum(ch.isalpha() for ch in low) < 4 or TIME_RE.search(low) or \
+            any(w in low for w in NOT_A_NAME):
+        return None
+    return re.split(r"[/|\\]", text)[0]
+
+
+def cluster_commander(c):
+    """Most common commander read in this cluster (any commander), or None."""
+    seen = {}
+    for _, t in c["texts"]:
+        head = name_part(t)
+        name = best_commander(head) if head else None
+        if name:
+            seen[name] = seen.get(name, 0) + 1
+    return max(seen, key=lambda k: (seen[k], len(k))) if seen else None
 
 
 def cluster_listed(c):
-    best = None
-    for _, t in c["texts"]:
-        f = match_listed(t)
-        if not f:
-            continue
-        top = max(r for _, r, _ in f)
-        cand = min((p, n) for p, r, n in f if r >= top - 0.15)
-        if best is None or top > best[0]:
-            best = (top, cand[1])
-    return best[1] if best else None
+    """A known gatherer leading this cluster's march, or None (a march led by another
+    commander is not taken for its secondary gatherer)."""
+    name = cluster_commander(c)
+    return name if name in GATHERERS else None
 
 
 def cluster_units(c):
@@ -625,10 +732,11 @@ def find_rows(clusters):
         for j in range(i - 1, -1, -1):
             if c["y"] - clusters[j]["y"] > reach:
                 break
-            raw = cluster_name_text(clusters[j])
+            known = cluster_commander(clusters[j])
+            raw = known or cluster_name_text(clusters[j])
             if raw:
                 if j not in names:
-                    names[j] = {"key": None, "raw": raw}
+                    names[j] = {"key": known if known in GATHERERS else None, "raw": raw}
                 break
 
     order = sorted(names)
@@ -698,7 +806,7 @@ def fill_slot(s, r):
     if r["key"]:
         s.key, s.full, s.short, s.gatherer = r["key"], r["key"], GATHERERS[r["key"]], True
     else:
-        s.key, s.full, s.short, s.gatherer = "ng:" + normalize(r["raw"]), "Not a Gatherer", "", False
+        s.key, s.full, s.short, s.gatherer = "ng:" + normalize(r["raw"]), r["raw"], "", False
         s.raw, s.norm = r["raw"], normalize(r["raw"])
 
 
@@ -858,7 +966,7 @@ def sub_parts(s):
     if s.key is None:
         return ("", "", "")
     if not s.gatherer:
-        return (s.raw, "", "")
+        return ("Not a gatherer - no timer", "", "")
     if s.status == "walking":
         if s.target:
             return ("Marching to ", s.target, "")
@@ -2958,7 +3066,7 @@ class App:
                     if d["key"] in GATHERERS:
                         s.key, s.full, s.short, s.gatherer = d["key"], d["key"], GATHERERS[d["key"]], True
                     elif d["key"].startswith("ng:"):
-                        s.key, s.full, s.gatherer = d["key"], "Not a Gatherer", False
+                        s.key, s.full, s.gatherer = d["key"], d.get("raw") or "Not a gatherer", False
                         s.raw, s.norm = d.get("raw", ""), normalize(d.get("raw", ""))
             self.setup_locked = bool(data.get("locked")) and any(s.key for s in slots)
         except Exception:
@@ -3579,12 +3687,12 @@ class App:
         if s.key is None:
             look, name, sub = "empty", "Not scanned yet", ("", "", "")
         elif not s.gatherer:
-            look, name, sub = "skip", "Not a Gatherer", (s.raw, "", "")
+            look, name, sub = "skip", s.raw or "Unknown commander", ("Not a gatherer - no timer", "", "")
         else:
             look, name, sub = s.status, s.full, sub_parts(s)
         ic, col, chip = LOOK[look]
         w["icon"].configure(text=glyph(ic), fg=col)
-        w["name"].configure(text=name, fg=WHITE if s.gatherer else MUTED)
+        w["name"].configure(text=name, fg=WHITE if s.gatherer else TEXT)
         if col == MUTED:
             w["chip"].set(text=chip, fg=col, fill=FIELD, outline=None)
         else:                       # tinted badge: soft fill + outline in the status colour
@@ -3621,7 +3729,7 @@ class App:
                 elif secs is not None:
                     s.gather_due, s.start = now + secs, now - 200
             slots[5].key, slots[5].raw, slots[5].norm = "ng:charlesmartel", "Charles Martel", "charlesmartel"
-            slots[5].full = "Not a Gatherer"
+            slots[5].full = "Charles Martel"
         GEMS.update(total=20856, day=time.strftime('%Y-%m-%d'), daily=340)
         SMART["Cleopatra VII"] = {3: [1500, 1530, 1512]}
         self.n = 7
