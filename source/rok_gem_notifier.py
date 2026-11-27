@@ -136,7 +136,7 @@ CHANGELOG = [
     ("1.0.13", "2026-11-27", [
         "Log keeps a history with times: scroll back, or Clear it",
         "Sidebar: bold menu, trophy for Top Donators, icons lined up",
-        "Marches and Gather Times: compact one-line rows",
+        "Marches, Gather Times and Top Donators: compact one-line rows",
     ]),
     ("1.0.12", "2026-11-27", [
         "New layout: every menu item is its own page",
@@ -2477,7 +2477,7 @@ class App:
                     d.text((S / 2, S / 2), str(rank), font=f, fill=TEXT, anchor="mm")
                 except Exception:
                     pass
-            self._medals[rank] = ImageTk.PhotoImage(im.resize((34, 34), Image.LANCZOS))
+            self._medals[rank] = ImageTk.PhotoImage(im.resize((24, 24), Image.LANCZOS))
         return self._medals[rank]
 
     def show_donors(self, data, online, why=None):
@@ -2510,17 +2510,14 @@ class App:
         for rank, (name, amount, msg) in enumerate(donors, 1):
             if rank > 1:
                 self.divider(self.board_list).pack(fill="x", padx=20)
-            rb = tk.Frame(self.board_list, bg=CARD, padx=20, pady=12)
+            rb = tk.Frame(self.board_list, bg=CARD, padx=20, pady=6)     # one compact line
             rb.pack(fill="x")
-            tk.Label(rb, image=self.medal(rank), bg=CARD, bd=0).pack(side="left", padx=(0, 14))
-            mid = tk.Frame(rb, bg=CARD)
-            mid.pack(side="left", fill="x", expand=True)
-            self.label(mid, name, CROWNS[rank][0] if rank in CROWNS else WHITE,
-                       13 if rank <= 3 else 11, "head", anchor="w").pack(anchor="w")
+            tk.Label(rb, image=self.medal(rank), bg=CARD, bd=0).pack(side="left", padx=(0, 12))
+            self.label(rb, name, CROWNS[rank][0] if rank in CROWNS else WHITE, 11, "head",
+                       anchor="w", width=20).pack(side="left")
             if msg:
-                self.label(mid, f'"{msg}"', MUTED, 9, anchor="w").pack(anchor="w")
-            self.label(rb, fmt_money(cur, amount), GREEN, 13 if rank <= 3 else 11, "head"
-                       ).pack(side="right")
+                self.label(rb, f'"{msg}"', MUTED, 9, anchor="w").pack(side="left", padx=(8, 0))
+            self.label(rb, fmt_money(cur, amount), GREEN, 11, "head").pack(side="right")
 
     def build_update_bar(self, m):
         self.upd_box = Box(m, ACCENT_SOFT, radius=10, pad=(18, 10), outline=ACCENT_LINE)
