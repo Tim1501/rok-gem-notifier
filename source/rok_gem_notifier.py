@@ -141,6 +141,7 @@ CHANGELOG = [
         "Marches, Gather Times and Top Donators: compact one-line rows",
         "Every ROK commander is recognised: others show by name as Not a gatherer",
         "A march led by a fighter is no longer taken for its secondary gatherer",
+        "Gather Times: gems per hour, Best commander and how many gathers each time is from",
     ]),
     ("1.0.12", "2026-11-27", [
         "New layout: every menu item is its own page",
@@ -2787,23 +2788,45 @@ class App:
         for i in range(MAX_MARCHES):
             b = tk.Frame(self.t_holder, bg=CARD, padx=20, pady=7)
             self.label(b, f"M{i + 1}", MUTED, 8, "semi", width=3, anchor="w").pack(side="left")
-            nm = self.label(b, "", WHITE, 10, "semi", width=22, anchor="w")
+            nm = self.label(b, "", WHITE, 10, "semi", width=20, anchor="w")
             nm.pack(side="left", padx=(4, 0))
-            btn = Pill(b, "", glyph("unlock"), lambda i=i: self.toggle_lock(i), h=28, width=28,
+            hold = tk.Frame(b, bg=CARD, width=28, height=28)     # keeps the lock's spot
+            hold.pack(side="right")
+            hold.pack_propagate(False)
+            btn = Pill(hold, "", glyph("unlock"), lambda i=i: self.toggle_lock(i), h=28, width=28,
                        size=9, fill=FIELD, hover=FIELD_HI, fg=WHITE,
                        tip="Lock: keep these times (saved). Unlock to edit.")
             btn.pack(side="right")
+            # stats: best gems per hour, Fastest chip, how many gathers the times come from
+            st = tk.Frame(b, bg=CARD)
+            st.pack(side="right", padx=(0, 10))
+            gph = self.label(st, "", WHITE, 12, "head")
+            gph.pack(side="left")
+            unit = self.label(st, "gems/h", MUTED, 8)
+            unit.pack(side="left", padx=(4, 0), pady=(3, 0))
+            fast = Pill(st, "Best", h=20, size=8, padx=7, fill=ACCENT_SOFT, fg=ACCENT,
+                        outline=ACCENT_LINE, kind="med",
+                        tip="Most gems per hour of your gatherers")
+            note = self.label(st, "", MUTED, 8, width=9, anchor="e")
+            note.pack(side="left", padx=(10, 0), pady=(2, 0))
+            row_i = i
+            Tip(gph, lambda i=row_i: "Gems per hour at this commander's best Gem Mine level"
+                + (f" (Level {self.trows[i]['lvl']})" if self.trows[i].get("lvl") else "")
+                + ".\nLevel x 10 gems, divided by the time to clear the mine.")
+            Tip(note, "Smart Gather on: how many of this commander's gathers the learned times "
+                      "come from (more gathers = more reliable). Off: your own times are used.")
             ents = tk.Frame(b, bg=CARD)
-            ents.pack(side="left", padx=(12, 0))
+            ents.pack(side="left", padx=(4, 0))
             ent = {}
             for L in LEVELS:
-                self.label(ents, f"L{L}", MUTED, 8, "semi").pack(side="left", padx=(0, 6))
-                fld = Field(ents, w=64, h=28, size=10)
-                fld.pack(side="left", padx=(0, 16))
+                self.label(ents, f"L{L}", MUTED, 8, "semi").pack(side="left", padx=(0, 3))
+                fld = Field(ents, w=56, h=28, size=9)
+                fld.pack(side="left", padx=(0, 5))
                 ent[L] = fld.entry
             self.trows.append({"box": b, "div": self.divider(self.t_holder), "name": nm,
                                "btn": btn, "ent": ent, "key": None, "locked": False,
-                               "smart_view": False, "manual": {}})
+                               "smart_view": False, "manual": {}, "gph": gph, "unit": unit,
+                               "fast": fast, "note": note, "stat": None, "lvl": None})
 
     def paint_times_head(self):
         h = self.sec["times"]
@@ -2987,6 +3010,44 @@ class App:
             else:
                 self.t_card.pack_forget()
                 self.t_empty.pack(fill="x")
+        self.paint_tstats(vis)
+
+    def row_stats(self, i):
+        """(best gems per hour, its level, gathers measured) for gather-times row i."""
+        row, key = self.trows[i], self.trows[i]["key"]
+        best, lvl = 0, None
+        for L, e in row["ent"].items():
+            secs = parse_mmss(e.value())          # the time in use: learned or your own
+            if secs:
+                g = GEM_VALUE[L] * 3600 / secs
+                if g > best:
+                    best, lvl = g, L
+        n = sum(len(v) for v in SMART.get(key, {}).values()) if key else 0
+        return round(best), lvl, n
+
+    def paint_tstats(self, vis):
+        stats = {i: self.row_stats(i) for i in vis}
+        top = max((g for g, _, _ in stats.values()), default=0)
+        for i, (g, lvl, n) in stats.items():
+            fastest = g > 0 and g == top and len(vis) > 1
+            state = (g, lvl, n, fastest, self.smart_on)
+            row = self.trows[i]
+            if state == row["stat"]:
+                continue
+            row["stat"] = state
+            row["gph"].configure(text=str(g) if g else "-", fg=WHITE if g else MUTED)
+            row["lvl"] = lvl
+            if fastest:
+                row["fast"].pack(side="left", padx=(8, 0), before=row["note"])
+            else:
+                row["fast"].pack_forget()
+            if n and self.smart_on:
+                note = f"{n} gather{'s' if n != 1 else ''}"
+            elif g:
+                note = "your times"
+            else:
+                note = "no times"
+            row["note"].configure(text=note)
 
     def show_times(self, i, key):
         """Smart Gather on: the box shows learned times (teal, read-only); a level not
