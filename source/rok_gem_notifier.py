@@ -118,7 +118,7 @@ import cv2
 import numpy as np
 import pytesseract
 
-APP_VERSION = "1.0.11"
+APP_VERSION = "1.0.12"
 UPDATE_REPO = "Tim1501/rok-gem-notifier"     # GitHub repository new versions are published in
 UPDATE_ASSET = "ROK-Gem-Notifier.exe"     # release file name (+ ".sha256" checksum file)
 HOTKEY_ACTIONS = (("scan", "Scan"), ("move", "Move"), ("clear", "Clear"))
@@ -138,6 +138,7 @@ CHANGELOG = [
         "Marches: compact list, summary and filter tabs",
         "What's New is now a full page",
         "Settings grouped into Marches & scanning, Alerts and Hotkeys",
+        "Bigger, easier to read Log",
     ]),
     ("1.0.11", "2026-11-27", [
         "Custom title bar: name, Scan and buttons in one bar at the top",
@@ -2487,19 +2488,19 @@ class App:
         self.upd_go.pack(side="right", padx=(0, 8))
 
     def build_log(self, m):
-        box = Box(m, CARD, radius=10, pad=(18, 10), outline=BORDER)
+        box = Box(m, CARD, radius=10, pad=(20, 14), outline=BORDER)
         box.pack(side="bottom", fill="x", padx=(28, 28), pady=(0, 16))
         head = tk.Frame(box.body, bg=CARD)
         head.pack(fill="x")
-        self.icon(head, "log", MUTED, 9).pack(side="left")
-        self.label(head, "LOG", MUTED, 8, "semi").pack(side="left", padx=(6, 0))
+        self.icon(head, "log", TEXT, 10).pack(side="left")
+        self.label(head, "Log", WHITE, 11, "head").pack(side="left", padx=(8, 0))
         self.result_txt = tk.Text(box.body, width=100, height=1, bg=CARD, bd=0,
                                   highlightthickness=0, wrap="word", cursor="arrow",
-                                  font=font(9, "log"), takefocus=0, padx=0, pady=0, spacing1=2)
-        self.result_txt.tag_configure("head", foreground=GREEN, font=(F["log"], 9, "bold"))
+                                  font=font(10, "log"), takefocus=0, padx=0, pady=0, spacing1=3)
+        self.result_txt.tag_configure("head", foreground=GREEN, font=(F["log"], 10, "bold"))
         self.result_txt.tag_configure("body", foreground=WHITE)
         self.result_txt.tag_configure("err", foreground=RED)
-        self.result_txt.pack(fill="x", pady=(4, 0))
+        self.result_txt.pack(fill="x", pady=(8, 0))
         self.set_result("READY: open the Troops list in the game and press Scan "
                         f"({key_label(self.keys['scan'])})")
 
@@ -3065,7 +3066,7 @@ class App:
                 t.insert("end", body + nl, "body")
             else:
                 t.insert("end", ln + nl, "body")
-        t.configure(height=sum(max(1, -(-len(l) // 100)) for l in lines), state="disabled")
+        t.configure(height=max(2, sum(max(1, -(-len(l) // 100)) for l in lines)), state="disabled")
 
     def start_scan(self):
         if self.scanning:
