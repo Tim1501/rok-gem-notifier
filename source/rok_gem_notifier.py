@@ -135,6 +135,8 @@ DONORS_FILE = "donors.json"               # last list downloaded, for offline us
 CHANGELOG = [
     ("1.0.13", "2026-11-27", [
         "Log keeps a history with times: scroll back, or Clear it",
+        "Sidebar: bold menu, trophy for Top Donators, icons lined up",
+        "Marches and Gather Times: compact one-line rows",
     ]),
     ("1.0.12", "2026-11-27", [
         "New layout: every menu item is its own page",
@@ -380,6 +382,9 @@ EDGE = "#3d3936"           # thin outline of buttons and fields
 TOPBAR = "#0f0d0c"         # live strip along the top of the window
 TITLEBAR = "#1c1917"       # the app's own title bar (custom window chrome)
 CLOSE_HOVER = "#c42b1c"    # Windows' red for the close button
+OFFWHITE = "#ece7e2"       # sidebar menu text
+NEWS_YELLOW = "#f0d27a"    # What's New in the sidebar
+TROPHY_RED = "#ff6b6b"     # Top Donators in the sidebar
 PANEL, INPUT_BG, LINE = CARD, FIELD, BORDER          # older names, still used by the overlay
 TEXT, MUTED, WHITE = "#a6a09b", "#79716b", "#fafaf9"
 GRAY = MUTED
@@ -1466,6 +1471,23 @@ class Tip:
         t.geometry(f"+{self.w.winfo_rootx()}+{self.w.winfo_rooty() + self.w.winfo_height() + 6}")
 
 
+def make_trophy(size, color):
+    """Small trophy cup (Top Donators menu icon)."""
+    from PIL import Image, ImageDraw
+    k = 8
+    S = size * k
+    im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    w = max(2, int(S * 0.09))
+    d.arc([S * .02, S * .14, S * .36, S * .50], 90, 270, fill=color, width=w)      # handles
+    d.arc([S * .64, S * .14, S * .98, S * .50], 270, 90, fill=color, width=w)
+    d.chord([S * .18, S * -.20, S * .82, S * .62], 0, 180, fill=color)             # cup
+    d.rectangle([S * .18, S * .06, S * .82, S * .21], fill=color)
+    d.rectangle([S * .45, S * .58, S * .55, S * .78], fill=color)                  # stem
+    d.rounded_rectangle([S * .26, S * .78, S * .74, S * .94], radius=int(S * .04), fill=color)
+    return im.resize((size, size), Image.LANCZOS)
+
+
 def make_dot(look, size):
     """Overlay status mark: filled green dot = gathering, hollow yellow ring =
     marching, red cross = returning, red slashed circle = gather done ("NOW"); nothing else."""
@@ -1540,7 +1562,7 @@ class Pill(tk.Canvas):
 
     def __init__(self, parent, text="", icon="", cmd=None, fill=FIELD, fg=WHITE, hover=None,
                  h=34, padx=14, size=10, width=None, radius=None, icon_fg=None, anchor="center",
-                 tip=None, outline=None, kind="semi"):
+                 tip=None, outline=None, kind="semi", img=None, iconbox=None):
         super().__init__(parent, bg=parent["bg"], highlightthickness=0, bd=0, height=h,
                          cursor="hand2" if cmd else "")
         self.text, self.icon, self.cmd = text, icon, cmd
@@ -1548,6 +1570,7 @@ class Pill(tk.Canvas):
         self.h, self.padx, self.size, self.fixed_w, self.anchor = h, padx, size, width, anchor
         self.radius = 6 if radius is None else radius
         self.outline, self.kind = outline, kind
+        self.img, self.iconbox = img, iconbox     # picture icon / fixed icon column (menus)
         self._over = False
         if cmd:
             self.bind("<Enter>", lambda e: self._hov(True))
@@ -1577,8 +1600,11 @@ class Pill(tk.Canvas):
     def draw(self):
         ft, ift = font(self.size, self.kind), icon_font(self.size + 1)
         tw = measure(ft, self.text) if self.text else 0
-        iw = measure(ift, self.icon) if self.icon else 0
-        gap = 8 if self.icon and self.text else 0
+        has_icon = bool(self.icon or self.img)
+        iw = (self.img.width() if self.img else measure(ift, self.icon)) if has_icon else 0
+        if has_icon and self.iconbox:
+            iw = self.iconbox                     # same column for every icon: texts line up
+        gap = (10 if self.iconbox else 8) if has_icon and self.text else 0
         w = self.fixed_w or tw + iw + gap + 2 * self.padx
         if int(float(self.cget("width"))) != w:
             self.configure(width=w)
@@ -1591,7 +1617,14 @@ class Pill(tk.Canvas):
         self._img = rr(w, self.h, self.radius, fill, line)
         self.create_image(0, 0, image=self._img, anchor="nw")
         x = self.padx if self.anchor == "w" else (w - tw - iw - gap) / 2
-        if self.icon:
+        if self.img:
+            self.create_image(x + iw / 2, self.h / 2, image=self.img, anchor="center")
+            x += iw + gap
+        elif self.icon and self.iconbox:
+            self.create_text(x + iw / 2, self.h / 2, text=self.icon, font=ift, anchor="center",
+                             fill=ifg)
+            x += iw + gap
+        elif self.icon:
             self.create_text(x, self.h / 2 + 1, text=self.icon, font=ift, anchor="w",
                              fill=ifg)
             x += iw + gap
@@ -1801,12 +1834,12 @@ class TimeEntry(tk.Entry):
 class Field(tk.Canvas):
     """Rounded box around a TimeEntry (turns red when the time is invalid)."""
 
-    def __init__(self, parent, w=70, h=34):
+    def __init__(self, parent, w=70, h=34, size=11):
         super().__init__(parent, bg=parent["bg"], width=w, height=h, highlightthickness=0, bd=0)
         self.ok, self.bad = rr(w, h, 6, FIELD, outline=EDGE), rr(w, h, 6, FIELD, outline=RED)
         self.create_image(0, 0, image=self.ok, anchor="nw", tags="bg")
-        self.entry = TimeEntry(self, font(11, "semi"))
-        self.create_window(w // 2, h // 2, window=self.entry, width=w - 14, height=h - 12)
+        self.entry = TimeEntry(self, font(size, "semi"))
+        self.create_window(w // 2, h // 2, window=self.entry, width=w - 12, height=h - 8)
 
 
 # march row look per status: (icon, colour, chip text)
@@ -1948,20 +1981,30 @@ class App:
     def build_sidebar(self, sd):
         self.nav = {}
 
+        from PIL import ImageTk
+        self._trophy = ImageTk.PhotoImage(make_trophy(16, TROPHY_RED))
+        self.nav_col = {}           # key: (text colour, icon colour, hover fill)
+
         def group(title, items, top):
             self.label(sd, title, MUTED, 8, "semi").pack(anchor="w", padx=20, pady=(top, 6))
-            for key, ic, name, tip in items:
-                self.nav[key] = Pill(sd, name, glyph(ic), lambda k=key: self.show_page(k),
-                                     fill=SIDEBAR, hover=GROUP, fg=WHITE, icon_fg=TEXT, h=36,
-                                     size=10, width=204, radius=6, anchor="w", padx=12, kind="med",
-                                     tip=tip)
+            for key, ic, name, tip, col in items:
+                fg, ifg = (col, col) if col else (OFFWHITE, TEXT)
+                hov = mix(col, SIDEBAR, .14) if col else GROUP
+                self.nav_col[key] = (fg, ifg, hov)
+                self.nav[key] = Pill(sd, name, glyph(ic) if ic else "",
+                                     lambda k=key: self.show_page(k), fill=SIDEBAR, hover=hov,
+                                     fg=fg, icon_fg=ifg, h=36, size=10, width=204, radius=6,
+                                     anchor="w", padx=12, kind="head", tip=tip, iconbox=18,
+                                     img=self._trophy if key == "board" else None)
                 self.nav[key].pack(padx=16, pady=1, anchor="w")
 
-        group("MENU", (("marches", "walk", "Marches", None),
-                       ("times", "timer", "Gather Times", None),
-                       ("settings", "settings", "Settings", None)), 20)
-        group("COMMUNITY", (("news", "news", "What's New", "Every update, newest first"),
-                            ("board", "star", "Top Donators", "Everyone who supports the app")), 18)
+        group("MENU", (("marches", "walk", "Marches", None, None),
+                       ("times", "timer", "Gather Times", None, None),
+                       ("settings", "settings", "Settings", None, None)), 20)
+        group("COMMUNITY", (("news", "news", "What's New", "Every update, newest first",
+                             NEWS_YELLOW),
+                            ("board", None, "Top Donators", "Everyone who supports the app",
+                             TROPHY_RED)), 18)
         self.set_nav("marches")
 
         foot = tk.Frame(sd, bg=SIDEBAR)
@@ -2056,8 +2099,10 @@ class App:
         """Highlight the menu item of the page on screen."""
         for k, p in self.nav.items():
             on = k == key
-            p.set(fill=GROUP if on else SIDEBAR,
-                  icon_fg=ACCENT if on else GOLD if k == "board" else TEXT)
+            fg, ifg, hov = self.nav_col[k]
+            coloured = fg != OFFWHITE
+            p.set(fill=(hov if coloured else GROUP) if on else SIDEBAR,
+                  icon_fg=ifg if coloured else ACCENT if on else TEXT)
 
     # ---------- hotkeys
     def register_hotkeys(self):
@@ -2215,7 +2260,7 @@ class App:
         self.set_result(f"COPIED: {DISCORD_NAME} - paste it in Discord to report a bug")
 
     # ---------- pages
-    def page_head(self, parent, key, chip, title, desc):
+    def page_head(self, parent, key, chip, title, desc, wrap=720):
         """Page header card (kingshot.net style): small chip, big title, one-line description.
         Returns the frame on the right for the page's own buttons."""
         box = Box(parent, CARD, radius=10, pad=(24, 18), outline=BORDER)
@@ -2229,7 +2274,7 @@ class App:
         ch.pack(anchor="w")
         ttl = self.label(left, title, WHITE, 18, "head", anchor="w")
         ttl.pack(anchor="w", pady=(8, 0))
-        d = self.label(left, desc, TEXT, 10, anchor="w", justify="left", wraplength=720)
+        d = self.label(left, desc, TEXT, 10, anchor="w", justify="left", wraplength=wrap)
         d.pack(anchor="w", pady=(2, 0))
         self.sec[key] = {"box": box, "title": ttl, "chip": ch, "desc": d, "left": left,
                          "right": right}
@@ -2537,13 +2582,7 @@ class App:
             self.label(f, name, TEXT, 9).pack(side="left", padx=(6, 0), pady=(6, 0))
             self.stats[key] = v
 
-        tabs = tk.Frame(parent, bg=BG)
-        tabs.pack(fill="x", pady=(0, 12))
         self.mfilter, self.mtabs, self._mlay = "all", {}, None
-        for key, name, _ in self.FILTERS:
-            self.mtabs[key] = Pill(tabs, name, "", lambda k=key: self.set_filter(k), h=30, size=9,
-                                   padx=14, fill=FIELD, hover=FIELD_HI, fg=WHITE, radius=15)
-            self.mtabs[key].pack(side="left", padx=(0, 8))
 
         card = Box(parent, CARD, radius=10, pad=(0, 4), outline=BORDER)
         card.pack(fill="x")
@@ -2552,21 +2591,21 @@ class App:
                                   padx=20, pady=14)
         self.rows = []
         for i in range(MAX_MARCHES):
-            b = tk.Frame(self.mlist, bg=CARD, padx=20, pady=9)
+            b = tk.Frame(self.mlist, bg=CARD, padx=20, pady=5)
             w = {"box": b, "div": self.divider(self.mlist), "bg": CARD}
             w["idx"] = self.label(b, f"M{i + 1}", MUTED, 8, "semi", width=3, anchor="w")
-            w["icon"] = self.icon(b, "clock", MUTED, 12, width=2)
-            mid = tk.Frame(b, bg=CARD)
-            w["name"] = self.label(mid, "", WHITE, 10, "semi", anchor="w")
-            w["name"].pack(anchor="w")
+            w["icon"] = self.icon(b, "clock", MUTED, 11, width=2)
+            mid = tk.Frame(b, bg=CARD)                # name and details on one line
+            w["name"] = self.label(mid, "", WHITE, 10, "semi", anchor="w", width=22)
+            w["name"].pack(side="left")
             sub = tk.Frame(mid, bg=CARD)
-            sub.pack(anchor="w")
+            sub.pack(side="left", padx=(8, 0))
             w["subl"] = [self.label(sub, "", TEXT, 9, padx=0) for _ in range(3)]
             for lb in w["subl"]:
                 lb.pack(side="left")
             w["chip"] = Pill(b, "", h=22, size=8, width=92, fill=FIELD, fg=MUTED, kind="med")
-            w["time"] = self.label(b, "", WHITE, 12, "head", width=8, anchor="e")
-            w["bar"] = Bar(b, 120, 5)
+            w["time"] = self.label(b, "", WHITE, 11, "head", width=8, anchor="e")
+            w["bar"] = Bar(b, 120, 4)
             w["idx"].grid(row=0, column=0, sticky="w")
             w["icon"].grid(row=0, column=1, sticky="w", padx=(0, 8))
             mid.grid(row=0, column=2, sticky="we")
@@ -2606,9 +2645,10 @@ class App:
             if lb.cget("text") != str(c[k]):
                 lb.configure(text=str(c[k]))
         for k, name, _ in self.FILTERS:
-            on = k == self.mfilter
-            self.mtabs[k].set(text=f"{name}  {c[k]}", fill=ACCENT if on else FIELD,
-                              hover=ACCENT_HI if on else FIELD_HI)
+            if k in self.mtabs:
+                on = k == self.mfilter
+                self.mtabs[k].set(text=f"{name}  {c[k]}", fill=ACCENT if on else FIELD,
+                                  hover=ACCENT_HI if on else FIELD_HI)
         self.sec["marches"]["chip"].set(text=f"{self.n} march{'es' if self.n != 1 else ''}")
 
     def set_filter(self, key):
@@ -2619,7 +2659,7 @@ class App:
 
     # ---------- Gather Times page
     def build_times(self, parent):
-        right = self.page_head(parent, "times", "", "", "")
+        right = self.page_head(parent, "times", "", "", "", wrap=560)
         self.icon(right, "smart", TEAL, 11).pack(side="left", padx=(0, 6))
         self.label(right, "Smart Gather", WHITE, 9, "semi").pack(side="left", padx=(0, 4))
         self.info(right, "Smart Gather learns each commander's time per level from your scans "
@@ -2636,35 +2676,29 @@ class App:
         self.label(self.t_empty.body, "Scan first - every gatherer found in the Troops list "
                                       "appears here.", MUTED, 9).pack(anchor="w")
         self.t_empty.pack(fill="x")
-        self.t_holder = tk.Frame(parent, bg=BG)
-        self.t_holder.pack(fill="x")
-        for c in (0, 1):
-            self.t_holder.columnconfigure(c, weight=1, uniform="t")
+        self.t_card = Box(parent, CARD, radius=10, pad=(0, 4), outline=BORDER)
+        self.t_holder = self.t_card.body
         self.trows = []
         for i in range(MAX_MARCHES):
-            box = Box(self.t_holder, CARD, radius=10, pad=(18, 14), outline=BORDER)
-            b = box.body
-            top = tk.Frame(b, bg=CARD)
-            top.pack(fill="x")
-            self.label(top, f"M{i + 1}", MUTED, 8, "semi").pack(side="left")
-            nm = self.label(top, "", WHITE, 11, "head")
-            nm.pack(side="left", padx=(8, 0))
-            btn = Pill(top, "", glyph("unlock"), lambda i=i: self.toggle_lock(i), h=28, width=28,
+            b = tk.Frame(self.t_holder, bg=CARD, padx=20, pady=7)
+            self.label(b, f"M{i + 1}", MUTED, 8, "semi", width=3, anchor="w").pack(side="left")
+            nm = self.label(b, "", WHITE, 10, "semi", width=22, anchor="w")
+            nm.pack(side="left", padx=(4, 0))
+            btn = Pill(b, "", glyph("unlock"), lambda i=i: self.toggle_lock(i), h=28, width=28,
                        size=9, fill=FIELD, hover=FIELD_HI, fg=WHITE,
                        tip="Lock: keep these times (saved). Unlock to edit.")
             btn.pack(side="right")
             ents = tk.Frame(b, bg=CARD)
-            ents.pack(fill="x", pady=(10, 0))
+            ents.pack(side="left", padx=(12, 0))
             ent = {}
             for L in LEVELS:
-                cell = tk.Frame(ents, bg=CARD)
-                cell.pack(side="left", padx=(0, 8))
-                self.label(cell, f"Level {L}", MUTED, 8, "semi").pack(anchor="w", pady=(0, 2))
-                fld = Field(cell)
-                fld.pack()
+                self.label(ents, f"L{L}", MUTED, 8, "semi").pack(side="left", padx=(0, 6))
+                fld = Field(ents, w=64, h=28, size=10)
+                fld.pack(side="left", padx=(0, 16))
                 ent[L] = fld.entry
-            self.trows.append({"box": box, "name": nm, "btn": btn, "ent": ent,
-                               "key": None, "locked": False, "smart_view": False, "manual": {}})
+            self.trows.append({"box": b, "div": self.divider(self.t_holder), "name": nm,
+                               "btn": btn, "ent": ent, "key": None, "locked": False,
+                               "smart_view": False, "manual": {}})
 
     def paint_times_head(self):
         h = self.sec["times"]
@@ -2679,7 +2713,7 @@ class App:
             h["chip"].set(text="Smart Gather off")
             h["desc"].configure(text="How long each commander takes to clear a Gem Mine of each "
                                      "level, as MM:SS. When a march arrives at a mine its timer "
-                                     "starts by itself. Lock a card to keep its times.")
+                                     "starts by itself. Lock a row to keep its times.")
 
     # ---------- Settings page
     def build_settings(self, parent):
@@ -2835,15 +2869,19 @@ class App:
         if vis != self._tvis:
             self._tvis = vis
             for r in self.trows:
-                r["box"].grid_forget()
+                r["div"].pack_forget()
+                r["box"].pack_forget()
             for k, i in enumerate(vis):
-                self.trows[i]["box"].grid(row=k // 2, column=k % 2, sticky="we", pady=(0, 12),
-                                          padx=(0, 6) if k % 2 == 0 else (6, 0))
+                if k:
+                    self.trows[i]["div"].pack(fill="x", padx=20)
+                self.trows[i]["box"].pack(fill="x")
             self.t_count.set(text=str(len(vis)))
             if vis:
                 self.t_empty.pack_forget()
+                self.t_card.pack(fill="x")
             else:
-                self.t_empty.pack(fill="x", before=self.t_holder)
+                self.t_card.pack_forget()
+                self.t_empty.pack(fill="x")
 
     def show_times(self, i, key):
         """Smart Gather on: the box shows learned times (teal, read-only); a level not
