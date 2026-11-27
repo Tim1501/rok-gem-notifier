@@ -133,6 +133,12 @@ DONORS_FILE = "donors.json"               # last list downloaded, for offline us
 # Newest first. Shown in the sidebar under "What's new"; release.py uses the
 # entry of the version it publishes as the GitHub release notes.
 CHANGELOG = [
+    ("1.0.12", "2026-11-27", [
+        "New layout: every menu item is its own page",
+        "Marches: compact list, summary and filter tabs",
+        "What's New is now a full page",
+        "Settings grouped into Marches & scanning, Alerts and Hotkeys",
+    ]),
     ("1.0.11", "2026-11-27", [
         "Custom title bar: name, Scan and buttons in one bar at the top",
         "More room for the timers (old header removed)",
@@ -395,7 +401,7 @@ IC = {"scan": "", "settings": "", "info": "", "sound": "",
       "walk": "", "reset": "", "smart": "", "log": "",
       "warn": "", "sync": "", "people": "", "minus": "",
       "unknown": "", "return": "\ue7a7", "heart": "", "keyboard": "", "bug": "\uebe8", "star": "\ue735", "back": "\ue72b",
-      "w_min": "\ue921", "w_max": "\ue922", "w_restore": "\ue923", "w_close": "\ue8bb"}
+      "news": "\ue789", "w_min": "\ue921", "w_max": "\ue922", "w_restore": "\ue923", "w_close": "\ue8bb"}
 
 
 # ================================================================ core
@@ -1916,42 +1922,49 @@ class App:
         tk.Frame(self.root, bg=BORDER, width=1).pack(side="left", fill="y")
         main = tk.Frame(self.root, bg=BG)
         main.pack(side="left", fill="both", expand=True)
-        self.build_sidebar(side)
         tk.Frame(main, bg=BG, height=20).pack(fill="x")
         self.build_update_bar(main)
         self.build_log(main)
-        self.scroll = Scroll(main, BG)
-        self.scroll.pack(fill="both", expand=True, padx=(28, 10), pady=(0, 14))
-        self.build_board(main)
-        self.root.bind_all("<MouseWheel>", lambda e: (self.board if self.board.winfo_manager()
-                                                       else self.scroll).wheel(e))
-        self.sec = {}
-        self.build_marches(self.scroll.body)
-        self.build_times(self.scroll.body)
-        self.build_settings(self.scroll.body)
-        for key in self.collapsed & set(self.sec):
-            self.toggle_section(key, save=False)
+        self.content = tk.Frame(main, bg=BG)
+        self.content.pack(fill="both", expand=True, padx=(28, 14), pady=(0, 14))
+        # one page per menu item; only the page on screen is shown
+        self.sec, self.pages, self.page = {}, {}, None
+        for key in ("marches", "times", "settings", "news", "board"):
+            self.pages[key] = Scroll(self.content, BG)
+        self.scroll, self.board = self.pages["marches"], self.pages["board"]   # older names
+        self.build_sidebar(side)
+        self.build_marches(self.pages["marches"].body)
+        self.build_times(self.pages["times"].body)
+        self.build_settings(self.pages["settings"].body)
+        self.build_news(self.pages["news"].body)
+        self.build_board(self.pages["board"].body)
+        self.root.bind_all("<MouseWheel>", lambda e: self.pages[self.page].wheel(e))
+        self.show_page("marches", fetch=False)
 
     def build_sidebar(self, sd):
-        self.label(sd, "MENU", MUTED, 8, "semi").pack(anchor="w", padx=20, pady=(20, 6))
         self.nav = {}
-        for key, ic, name in (("marches", "walk", "Marches"), ("times", "timer", "Gather Times"),
-                              ("settings", "settings", "Settings")):
-            self.nav[key] = Pill(sd, name, glyph(ic), lambda k=key: self.goto(k), fill=SIDEBAR,
-                                 hover=GROUP, fg=WHITE, icon_fg=TEXT, h=38, size=10, width=204,
-                                 radius=6, anchor="w", padx=12, kind="med")
-            self.nav[key].pack(padx=16, pady=1, anchor="w")
-        self.nav["board"] = Pill(sd, "Top Donators", glyph("star"), self.show_board, fill=SIDEBAR,
-                                 hover=GROUP, fg=WHITE, icon_fg=GOLD, h=38, size=10, width=204,
-                                 radius=6, anchor="w", padx=12, kind="med",
-                                 tip="Everyone who supports the app")
-        self.nav["board"].pack(padx=16, pady=1, anchor="w")
+
+        def group(title, items, top):
+            self.label(sd, title, MUTED, 8, "semi").pack(anchor="w", padx=20, pady=(top, 6))
+            for key, ic, name, tip in items:
+                self.nav[key] = Pill(sd, name, glyph(ic), lambda k=key: self.show_page(k),
+                                     fill=SIDEBAR, hover=GROUP, fg=WHITE, icon_fg=TEXT, h=36,
+                                     size=10, width=204, radius=6, anchor="w", padx=12, kind="med",
+                                     tip=tip)
+                self.nav[key].pack(padx=16, pady=1, anchor="w")
+
+        group("MENU", (("marches", "walk", "Marches", None),
+                       ("times", "timer", "Gather Times", None),
+                       ("settings", "settings", "Settings", None)), 20)
+        group("COMMUNITY", (("news", "news", "What's New", "Every update, newest first"),
+                            ("board", "star", "Top Donators", "Everyone who supports the app")), 18)
         self.set_nav("marches")
 
         foot = tk.Frame(sd, bg=SIDEBAR)
         foot.pack(side="bottom", fill="x", padx=16, pady=(0, 16))
+        self.label(foot, "HOTKEYS", MUTED, 8, "semi").pack(anchor="w", padx=4, pady=(0, 6))
         keys = tk.Frame(foot, bg=SIDEBAR)
-        keys.pack(fill="x", pady=(0, 10))
+        keys.pack(fill="x", pady=(0, 14))
         self.key_chips = {}
         for action, what in HOTKEY_ACTIONS:
             self.key_chips[action] = Pill(keys, f"{key_label(self.keys[action])} {what}", h=24,
@@ -1964,13 +1977,12 @@ class App:
              fg=WHITE, icon_fg=TEXT, h=34, size=9, width=204,
              tip="Saves one zip on your Desktop with the error log, your settings and the last "
                  "failed scan. Send it on Discord with a short description of the problem."
-             ).pack(anchor="w", pady=(0, 10))
-        self.label(foot, "Found a bug? Contact", MUTED, 8).pack(anchor="w")
+             ).pack(anchor="w", pady=(0, 12))
+        self.label(foot, "Found a bug? Contact", MUTED, 8).pack(anchor="w", padx=4)
         bug = self.label(foot, f"@{DISCORD_NAME} on Discord", DISCORD, 9, "semi", cursor="hand2")
-        bug.pack(anchor="w")
+        bug.pack(anchor="w", padx=4)
         bug.bind("<Button-1>", lambda e: self.copy_discord())
         Tip(bug, "Click to copy the Discord name")
-        self.build_changelog(sd)       # after the footer, so it only takes the space left
 
     def build_topbar(self, root):
         """Thin live strip along the top (like kingshot.net): status, gems, next resend, clock."""
@@ -2198,48 +2210,93 @@ class App:
         self.root.clipboard_append(DISCORD_NAME)
         self.set_result(f"COPIED: {DISCORD_NAME} - paste it in Discord to report a bug")
 
-    def build_changelog(self, sd):
-        hd = tk.Frame(sd, bg=SIDEBAR)
-        hd.pack(fill="x", padx=20, pady=(22, 8))
-        self.label(hd, "WHAT'S NEW", MUTED, 8, "semi").pack(side="left")
-        box = self.cl_box = tk.Frame(sd, bg=SIDEBAR)
-        box.pack(fill="both", expand=True, padx=(20, 14))
-        box.pack_propagate(False)            # the list never pushes the footer away
-        self.cl_lines, self.cl_fit = [], None
-        for n, (ver, date, items) in enumerate(CHANGELOG):
-            top = tk.Frame(box, bg=SIDEBAR)
-            self.label(top, f"v{ver}", WHITE if ver == APP_VERSION else TEXT, 10, "head").pack(side="left")
-            self.label(top, date, MUTED, 8).pack(side="left", padx=(8, 0), pady=(2, 0))
-            self.cl_lines.append((top, (12 if n else 0, 4), True))
-            for it in items:
-                row = tk.Frame(box, bg=SIDEBAR)
-                self.label(row, "•", ACCENT, 9).pack(side="left", anchor="n")
-                self.label(row, it, TEXT, 9, wraplength=172, justify="left", anchor="w"
-                           ).pack(side="left", padx=(6, 0), fill="x")
-                self.cl_lines.append((row, (1, 1), False))
-        box.bind("<Configure>", lambda e: self.fit_changelog())
+    # ---------- pages
+    def page_head(self, parent, key, chip, title, desc):
+        """Page header card (kingshot.net style): small chip, big title, one-line description.
+        Returns the frame on the right for the page's own buttons."""
+        box = Box(parent, CARD, radius=10, pad=(24, 18), outline=BORDER)
+        box.pack(fill="x", pady=(0, 16))
+        b = box.body
+        right = tk.Frame(b, bg=CARD)
+        right.pack(side="right", anchor="n")
+        left = tk.Frame(b, bg=CARD)
+        left.pack(side="left", fill="x", expand=True)
+        ch = Pill(left, chip, h=22, size=8, padx=10, fill=FIELD, fg=TEXT, kind="med")
+        ch.pack(anchor="w")
+        ttl = self.label(left, title, WHITE, 18, "head", anchor="w")
+        ttl.pack(anchor="w", pady=(8, 0))
+        d = self.label(left, desc, TEXT, 10, anchor="w", justify="left", wraplength=720)
+        d.pack(anchor="w", pady=(2, 0))
+        self.sec[key] = {"box": box, "title": ttl, "chip": ch, "desc": d, "left": left,
+                         "right": right}
+        return right
 
-    def fit_changelog(self):
-        """Show only lines that fit completely; the rest are hidden, not cut in half.
-        A version heading is only shown together with its first line."""
-        avail = self.cl_box.winfo_height()
-        if avail == self.cl_fit:
-            return
-        self.cl_fit = avail
-        for w, _, _ in self.cl_lines:
-            w.pack_forget()
-        used = 0
-        for i, (w, pady, head) in enumerate(self.cl_lines):
-            h = w.winfo_reqheight() + sum(pady)
-            if head and i + 1 < len(self.cl_lines):
-                nxt, npady, _ = self.cl_lines[i + 1]
-                h_need = h + nxt.winfo_reqheight() + sum(npady)
-            else:
-                h_need = h
-            if used + h_need > avail:
-                break
-            w.pack(fill="x", pady=pady)
-            used += h
+    def subhead(self, parent, text, count=None):
+        """Section heading on the page background, with an optional count chip."""
+        f = tk.Frame(parent, bg=BG)
+        f.pack(fill="x", pady=(2, 10))
+        self.label(f, text, WHITE, 12, "head").pack(side="left")
+        chip = None
+        if count is not None:
+            chip = Pill(f, str(count), h=20, size=8, padx=8, fill=FIELD, fg=TEXT, kind="med")
+            chip.pack(side="left", padx=(10, 0))
+        return f, chip
+
+    def divider(self, parent):
+        return tk.Frame(parent, bg=BORDER, height=1)
+
+    def show_page(self, key, fetch=True):
+        if key != self.page:
+            if self.page:
+                self.pages[self.page].pack_forget()
+            self.pages[key].pack(fill="both", expand=True)
+            self.pages[key].cv.yview_moveto(0)
+            self.page = key
+        self.set_nav(key)
+        if key == "board" and fetch:
+            self.board_note.configure(text="Loading the list...")
+            threading.Thread(target=lambda: self.q.put(("donors",) + fetch_donors()),
+                             daemon=True).start()
+
+    def goto(self, key):
+        self.show_page(key)
+
+    def show_board(self):
+        self.show_page("board")
+
+    def hide_board(self):
+        self.show_page("marches")
+
+    def build_news(self, parent):
+        """What's New: every version as its own card, newest first."""
+        self.page_head(parent, "news", f"v{APP_VERSION} installed", "What's New",
+                       "Every update to ROK Gem Notifier, newest first. The app updates itself: "
+                       "when a new version is out, a banner appears at the top.")
+        self.subhead(parent, "Versions", len(CHANGELOG))
+        self.news_cards = []
+        for n, (ver, date, items) in enumerate(CHANGELOG):
+            box = Box(parent, CARD, radius=10, pad=(22, 16),
+                      outline=ACCENT_LINE if n == 0 else BORDER)
+            box.pack(fill="x", pady=(0, 10))
+            b = box.body
+            b.columnconfigure(0, minsize=170)
+            b.columnconfigure(1, weight=1)
+            left = tk.Frame(b, bg=CARD)
+            left.grid(row=0, column=0, sticky="nw")
+            self.label(left, f"v{ver}", WHITE, 14, "head").pack(anchor="w")
+            self.label(left, date, MUTED, 9).pack(anchor="w")
+            if n == 0:
+                Pill(left, "Latest", h=20, size=8, padx=8, fill=ACCENT_SOFT, fg=ACCENT,
+                     outline=ACCENT_LINE, kind="med").pack(anchor="w", pady=(8, 0))
+            right = tk.Frame(b, bg=CARD)
+            right.grid(row=0, column=1, sticky="nwe")
+            for it in items:
+                row = tk.Frame(right, bg=CARD)
+                row.pack(fill="x", pady=2)
+                self.label(row, "\u2022", ACCENT, 10).pack(side="left", anchor="n")
+                self.label(row, it, TEXT, 10, wraplength=600, justify="left", anchor="w"
+                           ).pack(side="left", padx=(8, 0), fill="x")
+            self.news_cards.append(box)
 
     def build_titlebar(self, root):
         """The app's own title bar: name, Scan, tool buttons and the window buttons.
@@ -2324,47 +2381,25 @@ class App:
             b.configure(text=ic)
 
     # ---------- Top Donators page
-    def build_board(self, m):
-        """Full-page leaderboard that replaces the cards until Back is clicked."""
-        self.board = Scroll(m, BG)
-        b = self.board.body
-        top = Box(b, CARD, radius=10, pad=(20, 16), outline=BORDER)
-        top.pack(fill="x", pady=(0, 16))
-        head = tk.Frame(top.body, bg=CARD)
-        head.pack(fill="x")
-        Pill(head, "Back", glyph("back"), lambda: (self.hide_board(), self.set_nav("marches")),
-             h=34, size=9, fill=FIELD,
-             hover=FIELD_HI, tip="Back to the timers").pack(side="left")
-        self.icon(head, "star", GOLD, 14).pack(side="left", padx=(16, 8))
-        self.label(head, "Top Donators", WHITE, 16, "head").pack(side="left")
-        Pill(head, "Donate", glyph("heart"), self.donate, fill=DONATE, hover=DONATE_HI,
+    def build_board(self, b):
+        """Top Donators page."""
+        right = self.page_head(
+            b, "board", "Supporters", "Top Donators",
+            "Tysm for being absolute beasts, for both using and donating to my tiny app. Even you "
+            "using it is awesome :p\n"
+            "If you have any messages, make sure to write them in a note when donating on PayPal.\n"
+            "It might take a while for me to update the list since I do it manually, but thanks "
+            "again :p")
+        Pill(right, "Donate", glyph("heart"), self.donate, fill=DONATE, hover=DONATE_HI,
              fg=WHITE, icon_fg=PINK, h=34, size=9, padx=16, outline=DONATE_LINE,
-             tip="Support the app on PayPal").pack(side="right")
-        self.label(top.body, "Tysm for being absolute beasts, for both using and donating to my "
-                             "tiny app. Even you using it is awesome :p\n"
-                             "If you have any messages, make sure to write them in a note when "
-                             "donating on PayPal.\n"
-                             "It might take a while for me to update the list since I do it "
-                             "manually, but thanks again :p",
-                   TEXT, 10, wraplength=860, justify="left", anchor="w").pack(fill="x", pady=(12, 0))
-        self.board_note = self.label(top.body, "", MUTED, 8, anchor="w")
-        self.board_note.pack(fill="x", pady=(4, 0))
-        self.board_list = tk.Frame(b, bg=BG)
-        self.board_list.pack(fill="x")
+             tip="Support the app on PayPal").pack()
+        hd, self.board_count = self.subhead(b, "Leaderboard", 0)
+        self.board_note = self.label(hd, "", MUTED, 9)
+        self.board_note.pack(side="right")
+        card = Box(b, CARD, radius=10, pad=(0, 4), outline=BORDER)
+        card.pack(fill="x")
+        self.board_list = card.body
         self._medals = {}
-
-    def show_board(self):
-        self.set_nav("board")
-        if not self.board.winfo_manager():
-            self.scroll.pack_forget()
-            self.board.pack(fill="both", expand=True, padx=(28, 10), pady=(0, 14))
-        self.board_note.configure(text="Loading the list...")
-        threading.Thread(target=lambda: self.q.put(("donors",) + fetch_donors()), daemon=True).start()
-
-    def hide_board(self):
-        if self.board.winfo_manager():
-            self.board.pack_forget()
-            self.scroll.pack(fill="both", expand=True, padx=(28, 10), pady=(0, 14))
 
     def medal(self, rank):
         """Rank mark: a crown for the top 3 (diamond, gold, silver), a grey number after."""
@@ -2399,35 +2434,43 @@ class App:
     def show_donors(self, data, online, why=None):
         for w in self.board_list.winfo_children():
             w.destroy()
+
+        def message(title, sub):
+            f = tk.Frame(self.board_list, bg=CARD, padx=20, pady=14)
+            f.pack(fill="x")
+            self.label(f, title, WHITE, 11, "head").pack(anchor="w")
+            if sub:
+                self.label(f, sub, MUTED, 9).pack(anchor="w")
+
         if data is None:
             self.board_note.configure(
                 text="The list isn't online yet - try again later." if why == "missing" else
                 "Couldn't reach GitHub - check your internet, then open Top Donators again. "
                 "(Details in error.log)")
+            message("Nothing to show right now", "")
             return
         cur, updated, donors = parse_donors(data)
         note = f"Updated {updated}" if updated else ""
         if not online:
             note = ("Offline - showing the list saved last time. " + note).strip()
         self.board_note.configure(text=note)
+        self.board_count.set(text=str(len(donors)))
         if not donors:
-            box = Box(self.board_list, GROUP, radius=8, pad=(20, 18))
-            box.pack(fill="x")
-            self.label(box.body, "No donators yet - be the first!", WHITE, 13, "head").pack(anchor="w")
-            self.label(box.body, "Your name could be at the top of this list.", MUTED, 9).pack(anchor="w")
+            message("No donators yet - be the first!", "Your name could be at the top of this list.")
             return
         for rank, (name, amount, msg) in enumerate(donors, 1):
-            box = Box(self.board_list, GROUP, radius=8, pad=(16, 10))
-            box.pack(fill="x", pady=(0, 8))
-            rb = box.body
-            tk.Label(rb, image=self.medal(rank), bg=GROUP, bd=0).pack(side="left", padx=(0, 14))
-            mid = tk.Frame(rb, bg=GROUP)
+            if rank > 1:
+                self.divider(self.board_list).pack(fill="x", padx=20)
+            rb = tk.Frame(self.board_list, bg=CARD, padx=20, pady=12)
+            rb.pack(fill="x")
+            tk.Label(rb, image=self.medal(rank), bg=CARD, bd=0).pack(side="left", padx=(0, 14))
+            mid = tk.Frame(rb, bg=CARD)
             mid.pack(side="left", fill="x", expand=True)
             self.label(mid, name, CROWNS[rank][0] if rank in CROWNS else WHITE,
-                       14 if rank <= 3 else 12, "head", anchor="w").pack(anchor="w")
+                       13 if rank <= 3 else 11, "head", anchor="w").pack(anchor="w")
             if msg:
                 self.label(mid, f'"{msg}"', MUTED, 9, anchor="w").pack(anchor="w")
-            self.label(rb, fmt_money(cur, amount), GREEN, 14 if rank <= 3 else 12, "head"
+            self.label(rb, fmt_money(cur, amount), GREEN, 13 if rank <= 3 else 11, "head"
                        ).pack(side="right")
 
     def build_update_bar(self, m):
@@ -2444,208 +2487,260 @@ class App:
         self.upd_go.pack(side="right", padx=(0, 8))
 
     def build_log(self, m):
-        box = Box(m, CARD, radius=10, pad=(18, 12), outline=BORDER)
-        box.pack(side="bottom", fill="x", padx=(28, 24), pady=(0, 18))
+        box = Box(m, CARD, radius=10, pad=(18, 10), outline=BORDER)
+        box.pack(side="bottom", fill="x", padx=(28, 28), pady=(0, 16))
         head = tk.Frame(box.body, bg=CARD)
         head.pack(fill="x")
-        self.icon(head, "log", TEXT, 11).pack(side="left")
-        self.label(head, "Log", WHITE, 11, "head").pack(side="left", padx=(8, 0))
+        self.icon(head, "log", MUTED, 9).pack(side="left")
+        self.label(head, "LOG", MUTED, 8, "semi").pack(side="left", padx=(6, 0))
         self.result_txt = tk.Text(box.body, width=100, height=1, bg=CARD, bd=0,
                                   highlightthickness=0, wrap="word", cursor="arrow",
                                   font=font(9, "log"), takefocus=0, padx=0, pady=0, spacing1=2)
         self.result_txt.tag_configure("head", foreground=GREEN, font=(F["log"], 9, "bold"))
         self.result_txt.tag_configure("body", foreground=WHITE)
         self.result_txt.tag_configure("err", foreground=RED)
-        self.result_txt.pack(fill="x", pady=(6, 0))
+        self.result_txt.pack(fill="x", pady=(4, 0))
         self.set_result("READY: open the Troops list in the game and press Scan "
                         f"({key_label(self.keys['scan'])})")
 
-    def section(self, parent, key, ic, title, tip=None):
-        box = Box(parent, CARD, radius=10, pad=(20, 16), outline=BORDER)
-        box.pack(fill="x", pady=(0, 16))
-        head = tk.Frame(box.body, bg=CARD)
-        head.pack(fill="x")
-        self.icon(head, ic, TEXT, 12).pack(side="left")
-        ttl = self.label(head, title, WHITE, 13, "head")
-        ttl.pack(side="left", padx=(10, 6))
-        if tip:
-            self.info(head, tip).pack(side="left")
-        chev = Pill(head, "", glyph("up"), lambda: self.toggle_section(key), fill=CARD,
-                    hover=FIELD, fg=TEXT, h=30, width=30, size=9)
-        chev.pack(side="right")
-        body = tk.Frame(box.body, bg=CARD)
-        body.pack(fill="x", pady=(14, 0))
-        self.sec[key] = {"box": box, "body": body, "chev": chev, "title": ttl}
-        return head, body
-
-    def toggle_section(self, key, save=True):
-        s = self.sec[key]
-        if s["body"].winfo_manager():
-            s["body"].pack_forget()
-            s["chev"].set(icon=glyph("down"))
-            self.collapsed.add(key)
-        else:
-            s["body"].pack(fill="x", pady=(14, 0))
-            s["chev"].set(icon=glyph("up"))
-            self.collapsed.discard(key)
-        if save:
-            self.save_settings()
-
-    def goto(self, key):
-        self.hide_board()
-        self.set_nav(key)
-        if key in self.collapsed:
-            self.toggle_section(key)
-        self.scroll.scroll_to(self.sec[key]["box"])
+    # ---------- Marches page
+    FILTERS = (("all", "All", None), ("gathering", "Gathering", ("gathering",)),
+               ("walking", "Marching", ("walking",)), ("returning", "Returning", ("returning",)),
+               ("action", "Needs you", ("update", "ready")))
 
     def build_marches(self, parent):
-        _, body = self.section(parent, "marches", "walk", "Marches",
-                               "One row per march, read from the Troops list. Scan while marching "
-                               "and again once gathering; the overlay shows the same timers.")
+        self.page_head(parent, "marches", "", "Marches",
+                       "Live timers for every march, read from the Troops list. Scan while marching, "
+                       "then again once gathering.")
+        st = tk.Frame(self.sec["marches"]["left"], bg=CARD)
+        st.pack(anchor="w", pady=(12, 0))
+        self.stats = {}
+        for key, name, col in (("gathering", "gathering", GREEN), ("walking", "marching", ORANGE),
+                               ("returning", "returning", BLUE), ("action", "need you", RED)):
+            f = tk.Frame(st, bg=CARD)
+            f.pack(side="left", padx=(0, 28))
+            v = self.label(f, "0", col, 16, "head")
+            v.pack(side="left")
+            self.label(f, name, TEXT, 9).pack(side="left", padx=(6, 0), pady=(6, 0))
+            self.stats[key] = v
+
+        tabs = tk.Frame(parent, bg=BG)
+        tabs.pack(fill="x", pady=(0, 12))
+        self.mfilter, self.mtabs, self._mlay = "all", {}, None
+        for key, name, _ in self.FILTERS:
+            self.mtabs[key] = Pill(tabs, name, "", lambda k=key: self.set_filter(k), h=30, size=9,
+                                   padx=14, fill=FIELD, hover=FIELD_HI, fg=WHITE, radius=15)
+            self.mtabs[key].pack(side="left", padx=(0, 8))
+
+        card = Box(parent, CARD, radius=10, pad=(0, 4), outline=BORDER)
+        card.pack(fill="x")
+        self.mlist = card.body
+        self.m_empty = self.label(self.mlist, "No marches here right now.", MUTED, 9, anchor="w",
+                                  padx=20, pady=14)
         self.rows = []
         for i in range(MAX_MARCHES):
-            box = Box(body, GROUP, radius=8, pad=(16, 10))
-            b = box.body
-            w = {"box": box}
-            w["idx"] = self.label(b, f"M{i + 1}", MUTED, 9, "semi", width=3, anchor="w")
-            w["icon"] = self.icon(b, "clock", MUTED, 14, width=2)
-            mid = tk.Frame(b, bg=GROUP)
-            w["name"] = self.label(mid, "", WHITE, 11, "semi", anchor="w")
+            b = tk.Frame(self.mlist, bg=CARD, padx=20, pady=9)
+            w = {"box": b, "div": self.divider(self.mlist), "bg": CARD}
+            w["idx"] = self.label(b, f"M{i + 1}", MUTED, 8, "semi", width=3, anchor="w")
+            w["icon"] = self.icon(b, "clock", MUTED, 12, width=2)
+            mid = tk.Frame(b, bg=CARD)
+            w["name"] = self.label(mid, "", WHITE, 10, "semi", anchor="w")
             w["name"].pack(anchor="w")
-            sub = tk.Frame(mid, bg=GROUP)
+            sub = tk.Frame(mid, bg=CARD)
             sub.pack(anchor="w")
             w["subl"] = [self.label(sub, "", TEXT, 9, padx=0) for _ in range(3)]
             for lb in w["subl"]:
                 lb.pack(side="left")
-            w["chip"] = Pill(b, "", h=26, size=9, width=104, fill=FIELD, fg=MUTED, kind="med")
-            w["time"] = self.label(b, "", WHITE, 14, "head", width=9, anchor="e")
-            w["bar"] = Bar(b, 150, 6)
+            w["chip"] = Pill(b, "", h=22, size=8, width=92, fill=FIELD, fg=MUTED, kind="med")
+            w["time"] = self.label(b, "", WHITE, 12, "head", width=8, anchor="e")
+            w["bar"] = Bar(b, 120, 5)
             w["idx"].grid(row=0, column=0, sticky="w")
             w["icon"].grid(row=0, column=1, sticky="w", padx=(0, 8))
             mid.grid(row=0, column=2, sticky="we")
-            w["chip"].grid(row=0, column=3, padx=(10, 6))
+            w["chip"].grid(row=0, column=3, padx=(10, 8))
             w["time"].grid(row=0, column=4, sticky="e", padx=(0, 16))
             w["bar"].grid(row=0, column=5)
             b.columnconfigure(2, weight=1)
             self.rows.append(w)
 
+    def match(self, s, key):
+        if key == "all":
+            return True
+        return s.gatherer and s.status in dict((k, v) for k, _, v in self.FILTERS)[key]
+
+    def layout_rows(self):
+        """Show the march rows that fit the chosen tab, with a thin line between rows."""
+        vis = [i for i in range(self.n) if self.match(slots[i], self.mfilter)]
+        if (vis, self.n) == self._mlay:
+            return
+        self._mlay = (vis, self.n)
+        for w in self.rows:
+            w["div"].pack_forget()
+            w["box"].pack_forget()
+        self.m_empty.pack_forget()
+        for k, i in enumerate(vis):
+            if k:
+                self.rows[i]["div"].pack(fill="x", padx=20)
+            self.rows[i]["box"].pack(fill="x")
+        if not vis:
+            self.m_empty.pack(fill="x")
+
+    def paint_counts(self):
+        act = [s for s in slots[:self.n] if s.gatherer]
+        c = {k: sum(1 for s in act if s.status in v) for k, _, v in self.FILTERS if v}
+        c["all"] = self.n
+        for k, lb in self.stats.items():
+            if lb.cget("text") != str(c[k]):
+                lb.configure(text=str(c[k]))
+        for k, name, _ in self.FILTERS:
+            on = k == self.mfilter
+            self.mtabs[k].set(text=f"{name}  {c[k]}", fill=ACCENT if on else FIELD,
+                              hover=ACCENT_HI if on else FIELD_HI)
+        self.sec["marches"]["chip"].set(text=f"{self.n} march{'es' if self.n != 1 else ''}")
+
+    def set_filter(self, key):
+        self.mfilter = key
+        with lock:
+            self.layout_rows()
+            self.paint_counts()
+
+    # ---------- Gather Times page
     def build_times(self, parent):
-        head, body = self.section(parent, "times", "timer",
-                                  "Smart Gather Times" if self.smart_on else "Gather Times",
-                                  lambda: "Times learned from your scans (read-only). Levels not "
-                                  "learned yet use your own time, shown in grey. Turn Smart Gather "
-                                  "off to see and edit your own times." if self.smart_on else
-                                  "How long each commander takes to clear a Gem Mine of each "
-                                  "level, as MM:SS. When a march arrives at a mine its time "
-                                  "starts by itself. Lock a row to keep its times.")
-        self.smart_seg = Seg(head, [(False, "Off"), (True, "On")], self.smart_on, self.set_smart,
+        right = self.page_head(parent, "times", "", "", "")
+        self.icon(right, "smart", TEAL, 11).pack(side="left", padx=(0, 6))
+        self.label(right, "Smart Gather", WHITE, 9, "semi").pack(side="left", padx=(0, 4))
+        self.info(right, "Smart Gather learns each commander's time per level from your scans "
+                         "(scan while marching, then again once gathering). On: those learned times "
+                         "are used and shown. Off: your own times are used; they are kept either "
+                         "way.").pack(side="left", padx=(0, 10))
+        self.smart_seg = Seg(right, [(False, "Off"), (True, "On")], self.smart_on, self.set_smart,
                              colors={False: SEL_OFF}, h=30, seg_w=48)
-        self.smart_seg.pack(side="right", padx=(0, 12))
-        self.info(head, "Smart Gather learns each commander's time per level from your scans "
-                        "(scan while marching, then again once gathering). On: those learned times "
-                        "are used and shown. Off: your own times are used; they are kept either "
-                        "way.").pack(side="right", padx=(0, 8))
-        self.label(head, "Smart Gather", TEXT, 9, "semi").pack(side="right", padx=(0, 6))
-        self.icon(head, "smart", TEAL, 11).pack(side="right", padx=(0, 6))
-        self.t_empty = self.label(body, "Scan first - detected gatherers appear here.", MUTED, 9,
-                                  anchor="w")
+        self.smart_seg.pack(side="left")
+        self.paint_times_head()
+        _, self.t_count = self.subhead(parent, "Commanders", 0)
+        self.t_empty = Box(parent, CARD, radius=10, pad=(20, 16), outline=BORDER)
+        self.label(self.t_empty.body, "No commanders yet", WHITE, 11, "head").pack(anchor="w")
+        self.label(self.t_empty.body, "Scan first - every gatherer found in the Troops list "
+                                      "appears here.", MUTED, 9).pack(anchor="w")
         self.t_empty.pack(fill="x")
-        self.t_holder = tk.Frame(body, bg=CARD)
+        self.t_holder = tk.Frame(parent, bg=BG)
         self.t_holder.pack(fill="x")
         for c in (0, 1):
             self.t_holder.columnconfigure(c, weight=1, uniform="t")
         self.trows = []
         for i in range(MAX_MARCHES):
-            box = Box(self.t_holder, GROUP, radius=8, pad=(16, 12))
+            box = Box(self.t_holder, CARD, radius=10, pad=(18, 14), outline=BORDER)
             b = box.body
-            top = tk.Frame(b, bg=GROUP)
+            top = tk.Frame(b, bg=CARD)
             top.pack(fill="x")
-            self.label(top, f"M{i + 1}", MUTED, 9, "semi").pack(side="left")
-            nm = self.label(top, "", WHITE, 10, "semi")
+            self.label(top, f"M{i + 1}", MUTED, 8, "semi").pack(side="left")
+            nm = self.label(top, "", WHITE, 11, "head")
             nm.pack(side="left", padx=(8, 0))
-            btn = Pill(top, "", glyph("unlock"), lambda i=i: self.toggle_lock(i), h=30, width=30,
+            btn = Pill(top, "", glyph("unlock"), lambda i=i: self.toggle_lock(i), h=28, width=28,
                        size=9, fill=FIELD, hover=FIELD_HI, fg=WHITE,
                        tip="Lock: keep these times (saved). Unlock to edit.")
             btn.pack(side="right")
-            ents = tk.Frame(b, bg=GROUP)
-            ents.pack(fill="x", pady=(8, 0))
+            ents = tk.Frame(b, bg=CARD)
+            ents.pack(fill="x", pady=(10, 0))
             ent = {}
             for L in LEVELS:
-                cell = tk.Frame(ents, bg=GROUP)
+                cell = tk.Frame(ents, bg=CARD)
                 cell.pack(side="left", padx=(0, 8))
-                self.label(cell, f"L{L}", MUTED, 8, "semi").pack(anchor="w")
+                self.label(cell, f"Level {L}", MUTED, 8, "semi").pack(anchor="w", pady=(0, 2))
                 fld = Field(cell)
                 fld.pack()
                 ent[L] = fld.entry
             self.trows.append({"box": box, "name": nm, "btn": btn, "ent": ent,
                                "key": None, "locked": False, "smart_view": False, "manual": {}})
 
-    def build_settings(self, parent):
-        _, body = self.section(parent, "settings", "settings", "Settings")
-        grp = Box(body, GROUP, radius=8, pad=(18, 14))
-        grp.pack(fill="x")
-        g = grp.body
-        for c in (0, 1):
-            g.columnconfigure(c, weight=1, uniform="s")
+    def paint_times_head(self):
+        h = self.sec["times"]
+        if self.smart_on:
+            h["title"].configure(text="Smart Gather Times")
+            h["chip"].set(text="Smart Gather on")
+            h["desc"].configure(text="Times learned from your scans (read-only). Levels not learned "
+                                     "yet use your own time, shown in grey. Turn Smart Gather off "
+                                     "to see and edit your own times.")
+        else:
+            h["title"].configure(text="Gather Times")
+            h["chip"].set(text="Smart Gather off")
+            h["desc"].configure(text="How long each commander takes to clear a Gem Mine of each "
+                                     "level, as MM:SS. When a march arrives at a mine its timer "
+                                     "starts by itself. Lock a card to keep its times.")
 
-        def item(row, col, ic, name, tip):
-            f = tk.Frame(g, bg=GROUP)
-            f.grid(row=row, column=col, sticky="we", pady=8, padx=(0, 18) if col == 0 else 0)
-            self.icon(f, ic, ACCENT, 12).pack(side="left")
-            self.label(f, name, WHITE, 10, "semi", width=10, anchor="w").pack(side="left", padx=(10, 0))
-            self.info(f, tip).pack(side="left", padx=(0, 12))
-            ctl = tk.Frame(f, bg=GROUP)
-            ctl.pack(side="left", fill="x", expand=True)
+    # ---------- Settings page
+    def build_settings(self, parent):
+        self.page_head(parent, "settings", "Saved automatically", "Settings",
+                       "Set up your marches, scanning, alerts and hotkeys. Every change is saved "
+                       "straight away.")
+
+        def group(title):
+            self.subhead(parent, title)
+            box = Box(parent, CARD, radius=10, pad=(0, 4), outline=BORDER)
+            box.pack(fill="x", pady=(0, 18))
+            return box.body
+
+        def row(g, ic, name, desc, first=False):
+            if not first:
+                self.divider(g).pack(fill="x", padx=20)
+            f = tk.Frame(g, bg=CARD, padx=20, pady=14)
+            f.pack(fill="x")
+            ctl = tk.Frame(f, bg=CARD)
+            ctl.pack(side="right")
+            self.icon(f, ic, ACCENT, 12).pack(side="left", anchor="n", pady=(2, 0))
+            t = tk.Frame(f, bg=CARD)
+            t.pack(side="left", padx=(12, 20), fill="x", expand=True)
+            self.label(t, name, WHITE, 10, "semi", anchor="w").pack(anchor="w")
+            self.label(t, desc, TEXT, 9, anchor="w", justify="left", wraplength=430
+                       ).pack(anchor="w", pady=(2, 0))
             return ctl
 
-        c = item(0, 0, "people", "Marches",
-                 "How many marches you have. Commanders fill in from the first scan, then the "
-                 "count locks; Reset clears the slots.")
+        g = group("Marches & scanning")
+        c = row(g, "people", "Marches", "How many marches you have. Commanders fill in from the "
+                                        "first scan, then the count locks; Reset clears the slots.",
+                first=True)
         self.n_seg = Seg(c, [(i, str(i)) for i in range(1, MAX_MARCHES + 1)], self.n, self.set_n,
-                         seg_w=27, h=32)
+                         seg_w=27, h=30)
         self.n_seg.pack(side="left")
-        self.reset_btn = Pill(c, "Reset", glyph("reset"), self.reset_slots, h=32, size=9, padx=10,
+        self.reset_btn = Pill(c, "Reset", glyph("reset"), self.reset_slots, h=30, size=9, padx=10,
                               fill=FIELD, hover=FIELD_HI, tip="Clear the commander slots and scan again")
         self.setup_note = self.label(c, "", MUTED, 8)
-
-        c = item(0, 1, "area", "Scan area",
-                 "Set: drag a box around the Troops list, scans then read only that part "
-                 "(faster, fewer misreads). Full: read the whole screen.")
-        self.area_btn = Pill(c, "Set", glyph("area"), self.pick_area, h=32, size=9, fill=FIELD,
+        c = row(g, "area", "Scan area", "Set: drag a box around the Troops list, so scans read only "
+                                        "that part (faster, fewer misreads). Full: the whole screen.")
+        self.area_lbl = self.label(c, "", MUTED, 8)
+        self.area_lbl.pack(side="left", padx=(0, 10))
+        self.area_btn = Pill(c, "Set", glyph("area"), self.pick_area, h=30, size=9, fill=FIELD,
                              hover=FIELD_HI)
         self.area_btn.pack(side="left")
-        self.full_btn = Pill(c, "Full", glyph("full"), lambda: self.set_region(None), h=32,
+        self.full_btn = Pill(c, "Full", glyph("full"), lambda: self.set_region(None), h=30,
                              size=9, fill=FIELD, hover=FIELD_HI)
-        self.full_btn.pack(side="left", padx=(6, 10))
-        self.area_lbl = self.label(c, "", MUTED, 8)
-        self.area_lbl.pack(side="left")
+        self.full_btn.pack(side="left", padx=(6, 0))
         self.paint_area()
 
-        c = item(1, 0, "timer", "Lead",
-                 "How many seconds before a gather ends the first alert comes; "
-                 "a second one follows at half of that.")
+        g = group("Alerts")
+        c = row(g, "timer", "Lead time", "How long before a gather ends the first alert comes; a "
+                                         "second one follows at half of that.", first=True)
         self.lead_seg = Seg(c, [(15, "15s"), (30, "30s"), (60, "60s"), (120, "2m")],
-                            self.lead.get(), self.set_lead, seg_w=50, h=32)
+                            self.lead.get(), self.set_lead, seg_w=50, h=30)
         self.lead_seg.pack(side="left")
         self.set_lead(self.lead.get())
-
-        c = item(1, 1, "sound", "Sound",
-                 "Short beep with every alert. Windows hides notifications while a "
-                 "full-screen game runs; the beep still plays.")
+        c = row(g, "sound", "Sound", "A short beep with every alert. Windows hides notifications "
+                                     "while a full-screen game runs; the beep still plays.")
         self.sound_seg = Seg(c, [(False, "Off"), (True, "On")], self.sound_on, self.set_sound,
-                             colors={False: SEL_OFF}, seg_w=50, h=32)
+                             colors={False: SEL_OFF}, seg_w=50, h=30)
         self.sound_seg.pack(side="left")
 
-        c = item(2, 0, "keyboard", "Hotkeys",
-                 "Click a button, then press the key (or key combination) you want for it. "
-                 "Esc cancels. The keys work everywhere, even while the game is focused.")
+        g = group("Hotkeys")
+        c = row(g, "keyboard", "Keys", "Click a button, then press the key (or combination) you "
+                                       "want. Esc cancels. The keys work everywhere, even in the "
+                                       "game.", first=True)
         self.key_btns = {}
         for action, what in HOTKEY_ACTIONS:
-            b = Pill(c, "", "", lambda a=action: self.capture_key(a), h=32, size=9, padx=12,
+            b = Pill(c, "", "", lambda a=action: self.capture_key(a), h=30, size=9, padx=12,
                      fill=FIELD, hover=FIELD_HI)
             b.pack(side="left", padx=(0, 6))
             self.key_btns[action] = b
-        Pill(c, "", glyph("reset"), self.reset_keys, h=32, width=32, size=9, fill=FIELD,
+        Pill(c, "", glyph("reset"), self.reset_keys, h=30, width=30, size=9, fill=FIELD,
              hover=FIELD_HI, tip="Back to F8 / F9 / F10").pack(side="left")
         self.paint_keys()
 
@@ -2731,6 +2826,7 @@ class App:
             for k, i in enumerate(vis):
                 self.trows[i]["box"].grid(row=k // 2, column=k % 2, sticky="we", pady=(0, 12),
                                           padx=(0, 6) if k % 2 == 0 else (6, 0))
+            self.t_count.set(text=str(len(vis)))
             if vis:
                 self.t_empty.pack_forget()
             else:
@@ -2769,11 +2865,10 @@ class App:
             self.setup_note.pack_forget()
         else:
             self.reset_btn.pack_forget()
-        for i, w in enumerate(self.rows):
-            if i < self.n:
-                w["box"].pack(fill="x", pady=(0, 8))
-            else:
-                w["box"].pack_forget()
+        self._mlay = None
+        with lock:
+            self.layout_rows()
+            self.paint_counts()
 
     def set_n(self, v):
         if self.setup_locked:
@@ -2839,7 +2934,7 @@ class App:
     def set_smart(self, on):
         self.smart_on = on
         self.paint_smart()
-        self.sec["times"]["title"].configure(text="Smart Gather Times" if on else "Gather Times")
+        self.paint_times_head()
         with lock:
             self.refresh_times()
         self.save_settings()
@@ -3229,6 +3324,8 @@ class App:
                     changed = True
             for s, w in zip(slots, self.rows):
                 self.paint_row(s, w, now)
+            self.layout_rows()
+            self.paint_counts()
             self.overlay.refresh(now, self.tick_n)
         if self.tray:
             self.keep_overlay()
@@ -3321,8 +3418,7 @@ class App:
         self.upd_text.configure(text=f"Update available: v{rel['version']}"
                                      + (f"  -  {first[:90]}" if first else ""))
         if not self.upd_box.winfo_manager():
-            self.upd_box.pack(fill="x", padx=(28, 24), pady=(0, 14),
-                              before=self.board if self.board.winfo_manager() else self.scroll)
+            self.upd_box.pack(fill="x", padx=(28, 28), pady=(0, 14), before=self.content)
 
     def start_update(self):
         if self.updating or not self.update_rel:
@@ -3401,8 +3497,11 @@ class App:
 
     def paint_row(self, s, w, now):
         blink = self.tick_n % 4 < 2
-        w["box"].set_fill(FLASH if s.status == "ready" and blink else
-                          FLASH_UPD if s.status == "update" and blink else GROUP)
+        bg = (FLASH if s.status == "ready" and blink else
+              FLASH_UPD if s.status == "update" and blink else CARD)
+        if bg != w["bg"]:
+            recolor(w["box"], w["bg"], bg)
+            w["bg"] = bg
         if s.key is None:
             look, name, sub = "empty", "Not scanned yet", ("", "", "")
         elif not s.gatherer:
@@ -3415,7 +3514,7 @@ class App:
         if col == MUTED:
             w["chip"].set(text=chip, fg=col, fill=FIELD, outline=None)
         else:                       # tinted badge: soft fill + outline in the status colour
-            w["chip"].set(text=chip, fg=col, fill=mix(col, GROUP, .12), outline=mix(col, GROUP, .38))
+            w["chip"].set(text=chip, fg=col, fill=mix(col, CARD, .12), outline=mix(col, CARD, .38))
         self.set_sub(w, sub)
         frac, text, tcol = None, "", WHITE
         if s.gatherer and s.status in ("walking", "returning") and s.walk_due:
