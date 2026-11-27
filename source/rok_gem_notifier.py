@@ -118,7 +118,7 @@ import cv2
 import numpy as np
 import pytesseract
 
-APP_VERSION = "1.0.10"
+APP_VERSION = "1.0.11"
 UPDATE_REPO = "Tim1501/rok-gem-notifier"     # GitHub repository new versions are published in
 UPDATE_ASSET = "ROK-Gem-Notifier.exe"     # release file name (+ ".sha256" checksum file)
 HOTKEY_ACTIONS = (("scan", "Scan"), ("move", "Move"), ("clear", "Clear"))
@@ -135,6 +135,8 @@ DONORS_FILE = "donors.json"               # last list downloaded, for offline us
 CHANGELOG = [
     ("1.0.11", "2026-11-27", [
         "Custom title bar: name, Scan and buttons in one bar at the top",
+        "More room for the timers (old header removed)",
+        "New Hide to tray icon",
     ]),
     ("1.0.10", "2026-11-17", [
         "App name now shows: ROK Gem Notifier - by ChanaMasala",
