@@ -133,6 +133,9 @@ DONORS_FILE = "donors.json"               # last list downloaded, for offline us
 # Newest first. Shown in the sidebar under "What's new"; release.py uses the
 # entry of the version it publishes as the GitHub release notes.
 CHANGELOG = [
+    ("1.0.13", "2026-11-27", [
+        "Log keeps a history with times: scroll back, or Clear it",
+    ]),
     ("1.0.12", "2026-11-27", [
         "New layout: every menu item is its own page",
         "Marches: compact list, summary and filter tabs",
@@ -2488,19 +2491,28 @@ class App:
         self.upd_go.pack(side="right", padx=(0, 8))
 
     def build_log(self, m):
-        box = Box(m, CARD, radius=10, pad=(20, 14), outline=BORDER)
+        box = Box(m, CARD, radius=10, pad=(20, 12), outline=BORDER)
         box.pack(side="bottom", fill="x", padx=(28, 28), pady=(0, 16))
         head = tk.Frame(box.body, bg=CARD)
         head.pack(fill="x")
         self.icon(head, "log", TEXT, 10).pack(side="left")
         self.label(head, "Log", WHITE, 11, "head").pack(side="left", padx=(8, 0))
-        self.result_txt = tk.Text(box.body, width=100, height=1, bg=CARD, bd=0,
-                                  highlightthickness=0, wrap="word", cursor="arrow",
-                                  font=font(10, "log"), takefocus=0, padx=0, pady=0, spacing1=3)
-        self.result_txt.tag_configure("head", foreground=GREEN, font=(F["log"], 10, "bold"))
-        self.result_txt.tag_configure("body", foreground=WHITE)
-        self.result_txt.tag_configure("err", foreground=RED)
-        self.result_txt.pack(fill="x", pady=(8, 0))
+        self.label(head, "newest at the bottom - scroll for older", MUTED, 8).pack(
+            side="left", padx=(10, 0))
+        Pill(head, "Clear", "", self.clear_log, h=22, size=8, padx=10, fill=FIELD, hover=FIELD_HI,
+             fg=TEXT, kind="med", tip="Empty the log").pack(side="right")
+        t = self.result_txt = tk.Text(box.body, width=100, height=self.LOG_ROWS, bg=CARD, bd=0,
+                                      highlightthickness=0, wrap="word", cursor="arrow",
+                                      font=font(9, "log"), takefocus=0, padx=0, pady=0,
+                                      spacing1=1, state="disabled")
+        t.tag_configure("time", foreground=MUTED)
+        t.tag_configure("head", foreground=GREEN, font=(F["log"], 9, "bold"))
+        t.tag_configure("body", foreground=WHITE)
+        t.tag_configure("err", foreground=RED)
+        t.pack(fill="x", pady=(6, 0))
+        # the wheel scrolls the log itself, not the page behind it
+        t.bind("<MouseWheel>", lambda e: (t.yview_scroll(int(-e.delta / 120) * 2, "units"),
+                                          "break")[1])
         self.set_result("READY: open the Troops list in the game and press Scan "
                         f"({key_label(self.keys['scan'])})")
 
@@ -3049,14 +3061,21 @@ class App:
         self.set_result("CLEARED: all timers reset")
         self.save_state()
 
+    LOG_ROWS = 8        # visible lines in the Log box
+    LOG_KEEP = 300      # lines kept for scrolling back
+
     def set_result(self, text, color=None):
-        """Errors (lines starting with '!', or color=RED) show red; otherwise
+        """Add an entry to the Log (newest at the bottom, with the time).
+        Errors (lines starting with '!', or color=RED) show red; otherwise
         the heading before ':' is green and the explanation is white."""
         t = self.result_txt
         t.configure(state="normal")
-        t.delete("1.0", "end")
+        if t.index("end-1c") != "1.0":
+            t.insert("end", "\n")
+        stamp = time.strftime("%H:%M:%S")
         lines = text.split("\n")
         for i, ln in enumerate(lines):
+            t.insert("end", (stamp if i == 0 else " " * len(stamp)) + "  ", "time")
             nl = "\n" if i < len(lines) - 1 else ""
             if color == RED or ln.startswith("!"):
                 t.insert("end", ln.lstrip("!").strip() + nl, "err")
@@ -3066,7 +3085,26 @@ class App:
                 t.insert("end", body + nl, "body")
             else:
                 t.insert("end", ln + nl, "body")
-        t.configure(height=max(2, sum(max(1, -(-len(l) // 100)) for l in lines)), state="disabled")
+        n = int(t.index("end-1c").split(".")[0])
+        if n > self.LOG_KEEP:
+            t.delete("1.0", f"{n - self.LOG_KEEP + 1}.0")
+        t.see("end")
+        t.configure(state="disabled")
+
+    def last_log(self):
+        """The newest Log entry (its lines, without the times)."""
+        out = []
+        for ln in reversed(self.result_txt.get("1.0", "end").rstrip("\n").split("\n")):
+            out.append(ln[10:])
+            if ln[:8].strip():          # the line with the time starts the entry
+                break
+        return "\n".join(reversed(out))
+
+    def clear_log(self):
+        t = self.result_txt
+        t.configure(state="normal")
+        t.delete("1.0", "end")
+        t.configure(state="disabled")
 
     def start_scan(self):
         if self.scanning:
