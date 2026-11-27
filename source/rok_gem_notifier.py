@@ -1373,11 +1373,13 @@ def custom_chrome(win):
 
 def win_drag(hwnd, where=2):
     """Let Windows move (where=2, title bar) or resize (12 = top edge) the window,
-    exactly as if its own title bar / border had been grabbed (snapping included)."""
+    exactly as if its own title bar / border had been grabbed (snapping included).
+    Posted, not sent: Windows' drag loop must start after this Tk click handler has
+    returned - starting it from inside the handler crashes Python (nested Tk callbacks)."""
     try:
         import ctypes
         ctypes.windll.user32.ReleaseCapture()
-        ctypes.windll.user32.SendMessageW(hwnd, 0x00A1, where, 0)   # WM_NCLBUTTONDOWN
+        ctypes.windll.user32.PostMessageW(hwnd, 0x00A1, where, 0)   # WM_NCLBUTTONDOWN
     except Exception:
         pass
 
